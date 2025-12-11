@@ -138,3 +138,66 @@ exports.login = async (req, res) => {
     });
   }
 };
+
+// Google OAuth handler
+exports.googleAuth = async (req, res) => {
+  try {
+    const { email, name, picture } = req.body;
+
+    // validation
+    if (!email || !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and name are required'
+      });
+    }
+
+    // check if user exists
+    const [existingUsers] = await db.query(
+      'SELECT * FROM users WHERE email = ?',
+      [email]
+    );
+
+    let user;
+    let userId;
+
+    if (existingUsers.length > 0) {
+      // user exists - just log them in
+      user = existingUsers[0];
+      userId = user.id;
+    } else {
+      // create new user from google data
+      const [result] = await db.query(
+        'INSERT INTO users (full_name, email, phone, password, role, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+        [name, email, '', '', 'guest'] // empty phone and password for google users
+      );
+      
+      userId = result.insertId;
+      
+      // fetch the newly created user
+      const [newUsers] = await db.query(
+        'SELECT * FROM users WHERE id = ?',
+        [userId]
+      );
+      user = newUsers[0];
+    }
+
+    // generate token
+    const token = createToken(userId);
+
+    res.json({
+      success: true,
+      message: 'Google authentication successful',
+      token,
+      user: formatUser(user)
+    });
+
+  } catch (error) {
+    console.error('Google auth error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Google authentication failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};

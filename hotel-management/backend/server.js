@@ -6,8 +6,11 @@ const authRoutes = require('./routes/authRoutes');
 
 const app = express();
 
-// middlewares
-app.use(cors());
+// middlewares - allow frontend to connect
+app.use(cors({
+  origin: 'http://localhost:3000',
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
