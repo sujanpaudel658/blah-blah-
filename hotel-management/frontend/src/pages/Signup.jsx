@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { GoogleLogin } from '@react-oauth/google';
-import { jwtDecode } from 'jwt-decode';
 
 const Signup = () => {
   const navigate = useNavigate();
@@ -66,27 +65,22 @@ const Signup = () => {
       setLoading(true);
       setError('');
 
-      // decode the JWT token from Google
-      const decoded = jwtDecode(credentialResponse.credential);
-      
-      // send to backend
+      // send the credential directly to backend
       const response = await axios.post('http://localhost:5000/api/auth/google', {
-        token: credentialResponse.credential,
-        email: decoded.email,
-        name: decoded.name,
-        picture: decoded.picture
+        credential: credentialResponse.credential
       });
 
       // save token and user data
       localStorage.setItem('token', response.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
       
-      // redirect to dashboard
-      navigate('/dashboard');
+      // redirect based on role
+      const redirectPath = response.data.redirectPath || '/guest/dashboard';
+      navigate(redirectPath);
       
     } catch (err) {
-      console.error('Google signup error:', err);
-      setError(err.response?.data?.message || 'Google signup failed. Please try again.');
+      console.error('Google login error:', err);
+      setError(err.response?.data?.message || 'Google login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -132,7 +126,7 @@ const Signup = () => {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition"
-                placeholder="John Doe"
+                placeholder="YOur Name"
                 required
               />
             </div>
@@ -147,7 +141,7 @@ const Signup = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition"
-                placeholder="you@example.com"
+                placeholder="Enter your Mail"
                 required
               />
             </div>
@@ -162,7 +156,7 @@ const Signup = () => {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition"
-                placeholder="+1 (555) 000-0000"
+                placeholder="+977 9*********"
                 required
               />
             </div>

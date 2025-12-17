@@ -35,8 +35,9 @@ const Login = () => {
       localStorage.setItem('token', response.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
       
-      // redirect to dashboard
-      navigate('/dashboard');
+      // redirect based on role
+      const redirectPath = response.data.redirectPath || '/user/dashboard';
+      navigate(redirectPath);
       
     } catch (err) {
       console.error('Login error:', err);
@@ -52,23 +53,18 @@ const Login = () => {
       setLoading(true);
       setError('');
 
-      // decode the JWT token from Google
-      const decoded = jwtDecode(credentialResponse.credential);
-      
-      // send to backend
+      // send the credential directly to backend
       const response = await axios.post('http://localhost:5000/api/auth/google', {
-        token: credentialResponse.credential,
-        email: decoded.email,
-        name: decoded.name,
-        picture: decoded.picture
+        credential: credentialResponse.credential
       });
 
       // save token and user data
       localStorage.setItem('token', response.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
       
-      // redirect to dashboard
-      navigate('/dashboard');
+      // redirect based on role
+      const redirectPath = response.data.redirectPath || '/guest/dashboard';
+      navigate(redirectPath);
       
     } catch (err) {
       console.error('Google login error:', err);

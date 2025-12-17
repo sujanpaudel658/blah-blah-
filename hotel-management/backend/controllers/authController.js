@@ -49,14 +49,18 @@ exports.signup = async (req, res) => {
     // hash password
     const hashedPass = await bcrypt.hash(password, 10);
 
-    // insert user
+    // insert user with default role 'guest'
     const [result] = await db.query(
-      'INSERT INTO users (full_name, email, phone, password, role, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+      'INSERT INTO users (full_name, email, phone, password, role) VALUES (?, ?, ?, ?, ?)',
       [fullName, email, phone, hashedPass, 'guest']
     );
 
-    // create token
-    const token = createToken(result.insertId);
+    // create token with role
+    const token = jwt.sign(
+      { id: result.insertId, email, role: 'guest' },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     res.status(201).json({
       success: true,
@@ -68,7 +72,8 @@ exports.signup = async (req, res) => {
         email,
         phone,
         role: 'guest'
-      }
+      },
+      redirectPath: '/guest/dashboard'
     });
 
   } catch (error) {
@@ -119,14 +124,27 @@ exports.login = async (req, res) => {
       });
     }
 
-    // generate token
-    const token = createToken(user.id);
+    // generate token with role
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // determine redirect path based on role
+    let redirectPath = '/guest/dashboard';
+    if (user.role === 'superadmin') {
+      redirectPath = '/superadmin/dashboard';
+    } else if (user.role === 'admin') {
+      redirectPath = '/admin/dashboard';
+    }
 
     res.json({
       success: true,
       message: 'Login successful',
       token,
-      user: formatUser(user)
+      user: formatUser(user),
+      redirectPath
     });
 
   } catch (error) {
@@ -139,37 +157,59 @@ exports.login = async (req, res) => {
   }
 };
 
-// Google OAuth handler
+// Google OAuth handler with RBAC
 exports.googleAuth = async (req, res) => {
   try {
-    const { email, name, picture } = req.body;
+    const { credential } = req.body;
 
     // validation
-    if (!email || !name) {
+    if (!credential) {
       return res.status(400).json({
         success: false,
-        message: 'Email and name are required'
+        message: 'No credential provided'
       });
     }
 
-    // check if user exists
+    // decode the JWT token from Google
+    const parts = credential.split('.');
+    if (parts.length !== 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid credential format'
+      });
+    }
+
+    const payload = parts[1];
+    const decodedPayload = Buffer.from(payload, 'base64').toString('utf-8');
+    const decoded = JSON.parse(decodedPayload);
+
+    const { email, name, sub: googleId } = decoded;
+
+    // check if user exists by email or google_id
     const [existingUsers] = await db.query(
-      'SELECT * FROM users WHERE email = ?',
-      [email]
+      'SELECT * FROM users WHERE email = ? OR google_id = ?',
+      [email, googleId]
     );
 
     let user;
     let userId;
 
     if (existingUsers.length > 0) {
-      // user exists - just log them in
+      // user exists - update google_id if not set
       user = existingUsers[0];
       userId = user.id;
+      
+      if (!user.google_id) {
+        await db.query(
+          'UPDATE users SET google_id = ? WHERE id = ?',
+          [googleId, userId]
+        );
+      }
     } else {
-      // create new user from google data
+      // create new user with default role 'guest'
       const [result] = await db.query(
-        'INSERT INTO users (full_name, email, phone, password, role, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
-        [name, email, '', '', 'guest'] // empty phone and password for google users
+        'INSERT INTO users (google_id, full_name, email, role) VALUES (?, ?, ?, ?)',
+        [googleId, name, email, 'guest']
       );
       
       userId = result.insertId;
@@ -182,14 +222,27 @@ exports.googleAuth = async (req, res) => {
       user = newUsers[0];
     }
 
-    // generate token
-    const token = createToken(userId);
+    // generate token with role
+    const token = jwt.sign(
+      { id: userId, email: user.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // determine redirect path based on role
+    let redirectPath = '/guest/dashboard';
+    if (user.role === 'superadmin') {
+      redirectPath = '/superadmin/dashboard';
+    } else if (user.role === 'admin') {
+      redirectPath = '/admin/dashboard';
+    }
 
     res.json({
       success: true,
       message: 'Google authentication successful',
       token,
-      user: formatUser(user)
+      user: formatUser(user),
+      redirectPath
     });
 
   } catch (error) {
