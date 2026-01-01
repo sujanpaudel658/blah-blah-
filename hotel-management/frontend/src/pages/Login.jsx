@@ -80,114 +80,91 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4">
-      <div className="max-w-md w-full">
-        {/* Logo/Header */}
-        <div className="text-center mb-8">
-          <div className="inline-block p-4 bg-white rounded-2xl shadow-lg mb-4">
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center">
-              <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3z"/>
-              </svg>
+    <div className="min-h-screen flex flex-col md:flex-row bg-[#10182F]">
+      {/* Left: Login Form */}
+      <div className="w-full md:w-1/2 flex flex-col justify-center px-8 py-12 md:py-0 md:min-h-screen bg-[#10182F] text-white relative z-10">
+        <div className="max-w-md w-full mx-auto">
+          {/* Logo/Header */}
+          <div className="mb-10 flex items-center gap-3">
+            
+            <div>
+              <h2 className="text-xl font-bold leading-tight">Nepal Stay</h2>
+              <span className="text-xs tracking-widest text-[#F6C768] font-semibold">Login PortaL</span>
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Welcome Back</h1>
-          <p className="text-gray-600">Sign in to continue to your account</p>
-        </div>
+          <h1 className="text-4xl font-bold mb-2">Welcome Back</h1>
+          <p className="mb-8 text-[#B0B8D1]">Please enter your credentials to access the webapp.</p>
 
-        {/* Login Form */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
-          {error && (
-            <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded">
-              <p className="text-sm text-red-700">{error}</p>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-                placeholder="Enter your email"
-                required
-              />
-            </div>
-
-            {/* Password */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-                placeholder="Enter your password"
-                required
-              />
-            </div>
-
-            {/* Remember & Forgot */}
-            <div className="flex items-center justify-between">
-              <label className="flex items-center">
-                <input type="checkbox" className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                <span className="ml-2 text-sm text-gray-600">Remember me</span>
-              </label>
-              <button type="button" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                Forgot password?
+          {/* Login Form */}
+          <div className="bg-[#181F36] rounded-2xl shadow-xl p-8">
+            {error && (
+              <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded">
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            )}
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div>
+                <label className="block text-xs font-semibold text-[#B0B8D1] mb-2 tracking-widest"> EMAIL</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 bg-[#232B47] border border-[#232B47] rounded-lg text-white placeholder-[#B0B8D1] focus:ring-2 focus:ring-[#6C63FF] focus:border-transparent outline-none transition"
+                  placeholder=" Enter your mail"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#B0B8D1] mb-2 tracking-widest">PASSWORD</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 bg-[#232B47] border border-[#232B47] rounded-lg text-white placeholder-[#B0B8D1] focus:ring-2 focus:ring-[#6C63FF] focus:border-transparent outline-none transition"
+                  placeholder="Enter your password"
+                  required
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <label className="flex items-center text-[#B0B8D1] text-xs">
+                  <input type="checkbox" className="w-4 h-4 text-[#6C63FF] border-[#232B47] rounded focus:ring-[#6C63FF]" />
+                  <span className="ml-2">Remember me</span>
+                </label>
+                <button type="button" className="text-xs text-[#6C63FF] hover:underline font-semibold">Forgot Password?</button>
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-[#6C63FF] hover:bg-[#5548C8] text-white py-3 rounded-lg font-bold shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Signing in...' : 'LOG IN'}
               </button>
+            </form>
+            <p className="mt-6 text-center text-xs text-[#B0B8D1]">
+              Don't have an account?{' '}
+              <Link to="/signup" className="text-[#F6C768] hover:underline font-semibold">Register Now</Link>
+            </p>
+            <div className="mt-8 flex items-center justify-between text-xs text-[#B0B8D1]">
+              <span>Terms and Condition</span>
+              <span className="hover:underline cursor-pointer">Help & Support</span>
             </div>
-
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition transform hover:scale-105"
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
-
-          {/* Divider */}
-          <div className="my-6 flex items-center">
-            <div className="flex-1 border-t border-gray-300"></div>
-            <span className="px-4 text-sm text-gray-500">or continue with</span>
-            <div className="flex-1 border-t border-gray-300"></div>
           </div>
-
-          {/* Google Sign In */}
-          <div className="flex justify-center">
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={handleGoogleError}
-              theme="outline"
-              size="large"
-              text="signin_with"
-              shape="rectangular"
-              width="100%"
-            />
-          </div>
-
-          {/* Sign up link */}
-          <p className="mt-6 text-center text-sm text-gray-600">
-            Don't have an account?{' '}
-            <Link to="/signup" className="text-blue-600 hover:text-blue-700 font-semibold">
-              Create one now
-            </Link>
-          </p>
         </div>
-
-        {/* Footer */}
-        <p className="mt-8 text-center text-xs text-gray-500">
-          © 2025 Hotel Management System. All rights reserved.
-        </p>
+      </div>
+      {/* Right: Image & Quote */}
+      <div className="hidden md:flex w-1/2 min-h-screen relative items-center justify-center bg-[#181F36]">
+        <img src="/images/unnamed.png" alt="Hotel Lobby" className="absolute inset-0 w-full h-full object-cover opacity-80" />
+        <div className="relative z-10 flex flex-col items-start justify-center h-full px-16">
+          <div className="mb-8">
+            <div className="flex items-center gap-1 mb-2">
+              {[...Array(5)].map((_, i) => (
+                <span key={i} className="text-[#F6C768] text-lg">&#9733;</span>
+              ))}
+            </div>
+            <p className="text-2xl font-bold text-white max-w-md mb-4">"Experience hospitality redefined through seamless management."</p>
+            <span className="text-[#F6C768] font-semibold tracking-widest text-xs">EXCELLENCE IN SERVICE</span>
+          </div>
+        </div>
       </div>
     </div>
   );

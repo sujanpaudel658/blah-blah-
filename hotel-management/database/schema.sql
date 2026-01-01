@@ -38,4 +38,12 @@ CREATE TABLE IF NOT EXISTS hotels (
 ALTER TABLE users
 ADD CONSTRAINT fk_users_hotel
 FOREIGN KEY (hotel_id) REFERENCES hotels(id)
+
+
+-- Insert default users for each role
+INSERT INTO users (full_name, email, password, role)
+VALUES
+  ('Super Admin', 'superadmin@example.com', 'superadminpassword', 'superadmin'),
+  ('Admin User', 'admin@example.com', 'adminpassword', 'admin'),
+  ('Normal User', 'user@example.com', 'userpassword', 'guest');
 ON DELETE SET NULL;
