@@ -1,15 +1,21 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import axios from "axios";
+
 
 const Signup = () => {
+  const navigate = useNavigate();
   // Form state
   const [form, setForm] = useState({
-    name: "",
+    fullName: "",
     email: "",
+    phone: "",
     password: "",
     confirmPassword: "",
     terms: false,
   });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   // Handle input change
   const handleChange = (e) => {
@@ -21,9 +27,39 @@ const Signup = () => {
   };
 
   // Handle form submit
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // Add your registration logic here
+    setError("");
+    // Basic validation
+    if (!form.fullName || !form.email || !form.phone || !form.password || !form.confirmPassword) {
+      setError("Please fill in all fields.");
+      return;
+    }
+    if (form.password !== form.confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    if (!form.terms) {
+      setError("You must agree to the Terms & Conditions.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await axios.post("http://localhost:5000/api/auth/signup", {
+        fullName: form.fullName,
+        email: form.email,
+        phone: form.phone,
+        password: form.password,
+      });
+      // Registration successful, redirect to login or dashboard
+      navigate("/login");
+    } catch (err) {
+      setError(
+        err.response?.data?.message || "Registration failed. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -44,15 +80,32 @@ const Signup = () => {
           {/* Signup Form */}
           <div className="bg-[#181F36] rounded-2xl shadow-xl p-8">
             <form onSubmit={handleSubmit} className="space-y-6">
+              {error && (
+                <div className="bg-red-100 text-red-700 px-4 py-2 rounded mb-2 text-sm">
+                  {error}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-[#B0B8D1] mb-2 tracking-widest">FULL NAME</label>
                 <input
                   type="text"
-                  name="name"
-                  value={form.name}
+                  name="fullName"
+                  value={form.fullName}
                   onChange={handleChange}
                   className="w-full px-4 py-3 bg-[#232B47] border border-[#232B47] rounded-lg text-white placeholder-[#B0B8D1] focus:ring-2 focus:ring-[#6C63FF] focus:border-transparent outline-none transition"
                   placeholder="Enter your full name"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#B0B8D1] mb-2 tracking-widest">PHONE</label>
+                <input
+                  type="tel"
+                  name="phone"
+                  value={form.phone}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 bg-[#232B47] border border-[#232B47] rounded-lg text-white placeholder-[#B0B8D1] focus:ring-2 focus:ring-[#6C63FF] focus:border-transparent outline-none transition"
+                  placeholder="Enter your phone number"
                   required
                 />
               </div>
@@ -109,8 +162,9 @@ const Signup = () => {
               <button
                 type="submit"
                 className="w-full bg-[#6C63FF] hover:bg-[#5548C8] text-white py-3 rounded-lg font-bold shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loading}
               >
-                Register Now
+                {loading ? "Registering..." : "Register Now"}
               </button>
             </form>
             <p className="mt-6 text-center text-xs text-[#B0B8D1]">

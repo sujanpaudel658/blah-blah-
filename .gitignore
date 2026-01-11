@@ -9,3 +9,8 @@ yarn-error.log*
 dist/
 build/
 *.local
+*.md
+*.db
+*.sqlite
+uploads/
+hotel-images/

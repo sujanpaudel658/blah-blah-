@@ -16,7 +16,8 @@ const formatUser = (user) => {
     fullName: user.full_name,
     email: user.email,
     phone: user.phone,
-    role: user.role
+    role: user.role,
+    hotel_id: user.hotel_id
   };
 };
 
@@ -49,15 +50,36 @@ exports.signup = async (req, res) => {
     // hash password
     const hashedPass = await bcrypt.hash(password, 10);
 
-    // insert user with default role 'guest'
-    const [result] = await db.query(
-      'INSERT INTO users (full_name, email, phone, password, role) VALUES (?, ?, ?, ?, ?)',
-      [fullName, email, phone, hashedPass, 'guest']
+    // Check if email matches a hotel admin email
+    const [hotels] = await db.query(
+      'SELECT id FROM hotels WHERE email = ?',
+      [email]
     );
+
+    let role = 'guest';
+    let hotelId = null;
+    let redirectPath = '/guest/dashboard';
+    if (hotels.length > 0) {
+      // Email matches a hotel admin email, assign admin role and hotel_id
+      role = 'admin';
+      hotelId = hotels[0].id;
+      redirectPath = '/admin/dashboard';
+    }
+
+    // Insert user with determined role and hotel_id (if admin)
+    let query, params;
+    if (role === 'admin') {
+      query = 'INSERT INTO users (full_name, email, phone, password, role, hotel_id) VALUES (?, ?, ?, ?, ?, ?)';
+      params = [fullName, email, phone, hashedPass, role, hotelId];
+    } else {
+      query = 'INSERT INTO users (full_name, email, phone, password, role) VALUES (?, ?, ?, ?, ?)';
+      params = [fullName, email, phone, hashedPass, role];
+    }
+    const [result] = await db.query(query, params);
 
     // create token with role
     const token = jwt.sign(
-      { id: result.insertId, email, role: 'guest' },
+      { id: result.insertId, email, role },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -71,9 +93,10 @@ exports.signup = async (req, res) => {
         fullName,
         email,
         phone,
-        role: 'guest'
+        role,
+        hotelId
       },
-      redirectPath: '/guest/dashboard'
+      redirectPath
     });
 
   } catch (error) {
@@ -185,6 +208,12 @@ exports.googleAuth = async (req, res) => {
 
     const { email, name, sub: googleId } = decoded;
 
+    // Check if email matches a hotel admin email
+    const [hotels] = await db.query('SELECT id, email FROM hotels WHERE email = ?', [email]);
+    const isHotelAdmin = hotels.length > 0;
+    const hotelId = isHotelAdmin ? hotels[0].id : null;
+    const role = isHotelAdmin ? 'admin' : 'guest';
+
     // check if user exists by email or google_id
     const [existingUsers] = await db.query(
       'SELECT * FROM users WHERE email = ? OR google_id = ?',
@@ -205,11 +234,21 @@ exports.googleAuth = async (req, res) => {
           [googleId, userId]
         );
       }
+
+      // If user is now admin but was guest, update role and hotel_id
+      if (isHotelAdmin && user.role !== 'admin') {
+        await db.query(
+          'UPDATE users SET role = ?, hotel_id = ? WHERE id = ?',
+          [role, hotelId, userId]
+        );
+        user.role = role;
+        user.hotel_id = hotelId;
+      }
     } else {
-      // create new user with default role 'guest'
+      // create new user with appropriate role
       const [result] = await db.query(
-        'INSERT INTO users (google_id, full_name, email, role) VALUES (?, ?, ?, ?)',
-        [googleId, name, email, 'guest']
+        'INSERT INTO users (google_id, full_name, email, role, hotel_id) VALUES (?, ?, ?, ?, ?)',
+        [googleId, name, email, role, hotelId]
       );
       
       userId = result.insertId;
@@ -250,6 +289,42 @@ exports.googleAuth = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Google authentication failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get current user
+exports.getMe = async (req, res) => {
+  try {
+    const [users] = await db.query(
+      'SELECT id, full_name, email, phone, role, hotel_id FROM users WHERE id = ?',
+      [req.user.id]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        id: users[0].id,
+        fullName: users[0].full_name,
+        email: users[0].email,
+        phone: users[0].phone,
+        role: users[0].role,
+        hotel_id: users[0].hotel_id
+      }
+    });
+  } catch (error) {
+    console.error('Get me error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get user',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }

@@ -1,13 +1,16 @@
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
 require('dotenv').config();
 
 const authRoutes = require('./routes/authRoutes');
 const superAdminRoutes = require('./routes/superAdminRoutes');
+const hotelRoutes = require('./routes/hotelRoutes');
 
 const app = express();
 
-// middlewares - allow frontend to connect
+// Middlewares - allow frontend to connect
 app.use(cors({
   origin: 'http://localhost:3000',
   credentials: true
@@ -15,16 +18,33 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// routes
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ storage: storage });
+
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/superadmin', superAdminRoutes);
+app.use('/api/hotels', hotelRoutes);
 
-// basic health check
+// Basic health check
 app.get('/', (req, res) => {
   res.json({ message: 'Hotel Management API is running' });
 });
 
-// error handler
+// Error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({

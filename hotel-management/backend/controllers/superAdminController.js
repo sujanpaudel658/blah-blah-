@@ -23,9 +23,9 @@ exports.getAllHotels = async (req, res) => {
 // Create new hotel
 exports.createHotel = async (req, res) => {
   try {
-    const { name, address, city, country, phone, email, description } = req.body;
+    const { name, address, city, country, phone, email, description, image } = req.body;
 
-    console.log('Creating hotel with data:', { name, address, city, country, phone, email, description });
+    console.log('Creating hotel with data:', { name, address, city, country, phone, email, description, image });
 
     if (!name || !city || !country) {
       return res.status(400).json({
@@ -35,8 +35,8 @@ exports.createHotel = async (req, res) => {
     }
 
     const [result] = await db.query(
-      'INSERT INTO hotels (name, address, city, country, phone, email, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, address, city, country, phone, email, description]
+      'INSERT INTO hotels (name, address, city, country, phone, email, description, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, address, city, country, phone, email, description, image]
     );
 
     console.log('Hotel created with ID:', result.insertId);
@@ -53,6 +53,50 @@ exports.createHotel = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to create hotel',
+      error: error.message
+    });
+  }
+};
+
+// Update hotel
+exports.updateHotel = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, address, city, country, phone, email, description, image } = req.body;
+
+    console.log('Updating hotel with data:', { id, name, address, city, country, phone, email, description, image });
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Hotel ID is required'
+      });
+    }
+
+    const [result] = await db.query(
+      'UPDATE hotels SET name = ?, address = ?, city = ?, country = ?, phone = ?, email = ?, description = ?, image = ? WHERE id = ?',
+      [name, address, city, country, phone, email, description, image, id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hotel not found'
+      });
+    }
+
+    const [updatedHotel] = await db.query('SELECT * FROM hotels WHERE id = ?', [id]);
+
+    res.json({
+      success: true,
+      message: 'Hotel updated successfully',
+      hotel: updatedHotel[0]
+    });
+  } catch (error) {
+    console.error('Update hotel error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update hotel',
       error: error.message
     });
   }
