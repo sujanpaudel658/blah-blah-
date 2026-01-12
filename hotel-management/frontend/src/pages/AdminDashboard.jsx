@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 
 const AdminDashboard = () => {
@@ -403,14 +403,14 @@ const AdminDashboard = () => {
           </div>
         </div>
         <nav className="flex-1 px-4 space-y-1">
-          <a className="flex items-center gap-3 px-4 py-3 bg-primary/10 text-primary rounded-xl font-semibold" href="#">
+          <Link to="/admin/dashboard" className="flex items-center gap-3 px-4 py-3 bg-primary/10 text-primary rounded-xl font-semibold">
             <span className="material-symbols-outlined">dashboard</span>
             <span>Dashboard</span>
-          </a>
-          <a className="flex items-center gap-3 px-4 py-3 text-slate-600 hover:bg-slate-50 rounded-xl transition-colors" href="#">
+          </Link>
+          <Link to="/admin/rooms" className="flex items-center gap-3 px-4 py-3 text-slate-600 hover:bg-slate-50 rounded-xl transition-colors">
             <span className="material-symbols-outlined">bed</span>
             <span>Rooms</span>
-          </a>
+          </Link>
           <a className="flex items-center gap-3 px-4 py-3 text-slate-600 hover:bg-slate-50 rounded-xl transition-colors" href="#">
             <span className="material-symbols-outlined">book_online</span>
             <span>Bookings</span>

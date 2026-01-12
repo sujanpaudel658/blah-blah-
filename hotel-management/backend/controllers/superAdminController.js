@@ -23,9 +23,9 @@ exports.getAllHotels = async (req, res) => {
 // Create new hotel
 exports.createHotel = async (req, res) => {
   try {
-    const { name, address, city, country, phone, email, description, image } = req.body;
+    const { name, address, city, country, phone, email, description, image, adminName, adminEmail, adminPassword } = req.body;
 
-    console.log('Creating hotel with data:', { name, address, city, country, phone, email, description, image });
+    console.log('Creating hotel with data:', { name, address, city, country, phone, email, description, adminName, adminEmail });
 
     if (!name || !city || !country) {
       return res.status(400).json({
@@ -34,19 +34,74 @@ exports.createHotel = async (req, res) => {
       });
     }
 
+    if (!adminName || !adminEmail || !adminPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin name, email, and password are required'
+      });
+    }
+
+    // Start transaction by creating the hotel first
     const [result] = await db.query(
       'INSERT INTO hotels (name, address, city, country, phone, email, description, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [name, address, city, country, phone, email, description, image]
     );
 
-    console.log('Hotel created with ID:', result.insertId);
+    const hotelId = result.insertId;
+    console.log('Hotel created with ID:', hotelId);
 
-    const [newHotel] = await db.query('SELECT * FROM hotels WHERE id = ?', [result.insertId]);
+    // Hash the password provided by superadmin
+    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+
+    // Now handle admin user - check if email already exists
+    const [existingUsers] = await db.query(
+      'SELECT id, full_name FROM users WHERE email = ?',
+      [adminEmail]
+    );
+
+    let adminId;
+    
+    if (existingUsers.length > 0) {
+      // Update existing user to admin role and assign hotel
+      adminId = existingUsers[0].id;
+      console.log('User with email exists, updating to admin:', adminId);
+      console.log('Update query params:', { role: 'admin', hotelId, adminId });
+      
+      const [updateResult] = await db.query(
+        'UPDATE users SET role = ?, hotel_id = ?, password = ? WHERE id = ?',
+        ['admin', hotelId, hashedPassword, adminId]
+      );
+      
+      console.log('Update result:', updateResult);
+      
+      if (updateResult.affectedRows === 0) {
+        console.error('WARNING: No rows were updated! User ID:', adminId);
+      } else {
+        console.log('SUCCESS: User updated to admin role for hotel:', hotelId, 'Affected rows:', updateResult.affectedRows);
+      }
+      
+      // Verify the update worked by reading back the user
+      const [verifyUser] = await db.query('SELECT id, email, role, hotel_id FROM users WHERE id = ?', [adminId]);
+      console.log('Verification - User after update:', verifyUser[0]);
+    } else {
+      // Create new admin user
+      const [adminResult] = await db.query(
+        'INSERT INTO users (full_name, email, password, role, hotel_id) VALUES (?, ?, ?, ?, ?)',
+        [adminName, adminEmail, hashedPassword, 'admin', hotelId]
+      );
+      
+      adminId = adminResult.insertId;
+      console.log('New admin user created:', adminId);
+    }
+
+    const [newHotel] = await db.query('SELECT * FROM hotels WHERE id = ?', [hotelId]);
 
     res.status(201).json({
       success: true,
-      message: 'Hotel created successfully',
-      hotel: newHotel[0]
+      message: 'Hotel and admin created successfully',
+      hotel: newHotel[0],
+      adminPromoted: existingUsers.length > 0, // true if existing user was promoted, false if new admin created
+      adminId: adminId
     });
   } catch (error) {
     console.error('Create hotel error:', error);

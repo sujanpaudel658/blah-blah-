@@ -9,7 +9,6 @@ const SuperAdminDashboard = () => {
   const [stats, setStats] = useState({ hotels: 0, admins: 0, guests: 0 });
   const [hotels, setHotels] = useState([]);
   const [showAddHotelModal, setShowAddHotelModal] = useState(false);
-  const [showAddAdminModal, setShowAddAdminModal] = useState(false);
   const [hotelForm, setHotelForm] = useState({
     name: '',
     address: '',
@@ -17,14 +16,10 @@ const SuperAdminDashboard = () => {
     country: '',
     phone: '',
     email: '',
-    description: ''
-  });
-  const [adminForm, setAdminForm] = useState({
-    fullName: '',
-    email: '',
-    phone: '',
-    password: '',
-    hotelId: ''
+    description: '',
+    adminName: '',
+    adminEmail: '',
+    adminPassword: ''
   });
   const [message, setMessage] = useState({ text: '', type: '' });
 
@@ -82,44 +77,29 @@ const SuperAdminDashboard = () => {
     const token = localStorage.getItem('token');
     
     try {
+      console.log('Submitting hotel form:', hotelForm);
       const response = await axios.post(
         'http://localhost:5000/api/superadmin/hotels',
         hotelForm,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      
+      console.log('Hotel creation response:', response.data);
 
-      setMessage({ text: 'Hotel added successfully!', type: 'success' });
+      // Show specific message based on whether user was promoted or created
+      const successMsg = response.data.adminPromoted 
+        ? `Hotel created! User "${hotelForm.adminEmail}" has been promoted to admin. They must log out and log in again to access the admin dashboard.`
+        : 'Hotel and new admin created successfully! The admin can now log in.';
+      
+      setMessage({ text: successMsg, type: 'success' });
       setShowAddHotelModal(false);
-      setHotelForm({ name: '', address: '', city: '', country: '', phone: '', email: '', description: '' });
+      setHotelForm({ name: '', address: '', city: '', country: '', phone: '', email: '', description: '', adminName: '', adminEmail: '', adminPassword: '' });
       loadData();
-      setTimeout(() => setMessage({ text: '', type: '' }), 3000);
+      setTimeout(() => setMessage({ text: '', type: '' }), 8000); // Show longer for important message
     } catch (error) {
+      console.error('Hotel creation error:', error.response?.data || error);
       setMessage({ 
         text: error.response?.data?.message || 'Failed to add hotel', 
-        type: 'error' 
-      });
-    }
-  };
-
-  const handleAddAdmin = async (e) => {
-    e.preventDefault();
-    const token = localStorage.getItem('token');
-    
-    try {
-      const response = await axios.post(
-        'http://localhost:5000/api/superadmin/admins',
-        adminForm,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      setMessage({ text: 'Admin created successfully!', type: 'success' });
-      setShowAddAdminModal(false);
-      setAdminForm({ fullName: '', email: '', phone: '', password: '', hotelId: '' });
-      loadData();
-      setTimeout(() => setMessage({ text: '', type: '' }), 3000);
-    } catch (error) {
-      setMessage({ 
-        text: error.response?.data?.message || 'Failed to create admin', 
         type: 'error' 
       });
     }
@@ -221,24 +201,6 @@ const SuperAdminDashboard = () => {
               </button>
               <button className="w-full px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
                 View Hotel Reports
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Admin Management</h3>
-            <div className="space-y-3">
-              <button 
-                onClick={() => setShowAddAdminModal(true)}
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-              >
-                Add New Admin
-              </button>
-              <button className="w-full px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
-                Manage Admins
-              </button>
-              <button className="w-full px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
-                Assign Hotel to Admin
               </button>
             </div>
           </div>
@@ -391,6 +353,48 @@ const SuperAdminDashboard = () => {
                   />
                 </div>
 
+                <hr className="my-6" />
+                
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Admin Account (Hotel Manager)</h3>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Admin Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={hotelForm.adminName}
+                    onChange={(e) => setHotelForm({...hotelForm, adminName: e.target.value})}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="Enter admin full name"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Admin Email *</label>
+                  <input
+                    type="email"
+                    required
+                    value={hotelForm.adminEmail}
+                    onChange={(e) => setHotelForm({...hotelForm, adminEmail: e.target.value})}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="Enter admin email"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">If email exists, user will be converted to admin</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Admin Password *</label>
+                  <input
+                    type="password"
+                    required
+                    minLength="6"
+                    value={hotelForm.adminPassword}
+                    onChange={(e) => setHotelForm({...hotelForm, adminPassword: e.target.value})}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="Minimum 6 characters"
+                  />
+                </div>
+
                 <div className="flex gap-3 pt-4">
                   <button
                     type="submit"
@@ -402,108 +406,7 @@ const SuperAdminDashboard = () => {
                     type="button"
                     onClick={() => {
                       setShowAddHotelModal(false);
-                      setHotelForm({ name: '', address: '', city: '', country: '', phone: '', email: '', description: '' });
-                    }}
-                    className="flex-1 px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Admin Modal */}
-      {showAddAdminModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl max-w-xl w-full mx-4">
-            <div className="p-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">Create Admin Account</h2>
-              <form onSubmit={handleAddAdmin} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Full Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={adminForm.fullName}
-                    onChange={(e) => setAdminForm({...adminForm, fullName: e.target.value})}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Email *</label>
-                  <input
-                    type="email"
-                    required
-                    value={adminForm.email}
-                    onChange={(e) => setAdminForm({...adminForm, email: e.target.value})}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
-                  <input
-                    type="tel"
-                    value={adminForm.phone}
-                    onChange={(e) => setAdminForm({...adminForm, phone: e.target.value})}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Password *</label>
-                  <input
-                    type="password"
-                    required
-                    minLength="6"
-                    value={adminForm.password}
-                    onChange={(e) => setAdminForm({...adminForm, password: e.target.value})}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Minimum 6 characters</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Assign to Hotel *</label>
-                  <select
-                    required
-                    value={adminForm.hotelId}
-                    onChange={(e) => setAdminForm({...adminForm, hotelId: e.target.value})}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">Select a hotel</option>
-                    {hotels.map(hotel => (
-                      <option key={hotel.id} value={hotel.id}>
-                        {hotel.name} - {hotel.city}, {hotel.country}
-                      </option>
-                    ))}
-                  </select>
-                  {hotels.length === 0 && (
-                    <p className="text-xs text-red-500 mt-1">Please create a hotel first before adding admins</p>
-                  )}
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={hotels.length === 0}
-                    className={`flex-1 px-6 py-2 text-white rounded-lg transition ${
-                      hotels.length === 0 
-                        ? 'bg-gray-400 cursor-not-allowed' 
-                        : 'bg-blue-600 hover:bg-blue-700'
-                    }`}
-                  >
-                    Create Admin
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAddAdminModal(false);
-                      setAdminForm({ fullName: '', email: '', phone: '', password: '', hotelId: '' });
+                      setHotelForm({ name: '', address: '', city: '', country: '', phone: '', email: '', description: '', adminName: '', adminEmail: '', adminPassword: '' });
                     }}
                     className="flex-1 px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
                   >

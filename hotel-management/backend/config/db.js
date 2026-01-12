@@ -6,7 +6,7 @@ const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'hotel_management',
+  database: process.env.DB_NAME || 'nepal_stays',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
@@ -15,7 +15,7 @@ const pool = mysql.createPool({
 // quick test to see if we're connected
 pool.getConnection((err, connection) => {
   if (err) {
-    console.error('DB connection error:', err.message);
+    console.error('DB connection error:', err);
   } else {
     console.log('✓ Database connected');
     // Try to set max_allowed_packet for large image uploads

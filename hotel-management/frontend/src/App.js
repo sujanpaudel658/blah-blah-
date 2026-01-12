@@ -5,6 +5,7 @@ import Signup from './pages/Signup';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import UserDashboard from './pages/UserDashboard';
+import RoomManagement from './pages/RoomManagement';
 
 function App() {
   return (
@@ -15,6 +16,8 @@ function App() {
         <Route path="/superadmin/dashboard" element={<SuperAdminDashboard />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/guest/dashboard" element={<UserDashboard />} />
+        <Route path="/admin/rooms" element={<RoomManagement />} />
+        <Route path="/admin/rooms/:roomId" element={<RoomManagement />} />
         <Route path="/" element={<Navigate to="/login" />} />
         <Route path="*" element={<Navigate to="/login" />} />
       </Routes>
