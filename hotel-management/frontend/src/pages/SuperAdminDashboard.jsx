@@ -66,6 +66,7 @@ const SuperAdminDashboard = () => {
       ]);
 
       setHotels(hotelsRes.data.hotels || []);
+      console.log('Hotels loaded:', hotelsRes.data.hotels);
       setStats({
         hotels: hotelsRes.data.hotels?.length || 0,
         admins: adminsRes.data.admins?.length || 0,
@@ -256,6 +257,53 @@ const SuperAdminDashboard = () => {
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Hotels List */}
+        <div className="mt-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Hotels Overview</h2>
+          {hotels.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {hotels.map(hotel => {
+                let hotelImages = [];
+                if (hotel.image) {
+                  try {
+                    hotelImages = JSON.parse(hotel.image);
+                  } catch (e) {
+                    hotelImages = [hotel.image];
+                  }
+                }
+                console.log('Hotel:', hotel.name, 'Images:', hotelImages);
+                return (
+                  <div key={hotel.id} className="bg-white rounded-xl shadow-md overflow-hidden">
+                    {hotelImages.length > 0 && (
+                      <div className="relative h-48 overflow-hidden">
+                        <img 
+                          src={hotelImages[0].startsWith('data:') ? hotelImages[0] : (hotelImages[0].startsWith('http') ? hotelImages[0] : `http://localhost:5000${hotelImages[0]}`)} 
+                          alt={hotel.name} 
+                          className="w-full h-full object-cover" 
+                        />
+                        {hotelImages.length > 1 && (
+                          <div className="absolute top-2 right-2 bg-black/50 text-white px-2 py-1 rounded text-xs">
+                            +{hotelImages.length - 1} more
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div className="p-4">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">{hotel.name}</h3>
+                      <p className="text-gray-600 text-sm mb-2">{hotel.city}, {hotel.country}</p>
+                      <p className="text-gray-500 text-sm">{hotel.description}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl shadow-md p-8 text-center">
+              <p className="text-gray-500">No hotels found. Create your first hotel to get started.</p>
+            </div>
+          )}
         </div>
       </main>
 

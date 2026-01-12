@@ -58,16 +58,32 @@ const Navbar = ({ user, onLogout, searchPlaceholder = "Search...", onSearch, hot
                 />
               </form>
               {showDropdown && filteredSuggestions.length > 0 && (
-                <ul className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
-                  {filteredSuggestions.map(hotel => (
-                    <li
-                      key={hotel.id}
-                      className="px-4 py-2 cursor-pointer hover:bg-slate-100 text-slate-700"
-                      onMouseDown={() => handleDropdownSelect(hotel)}
-                    >
-                      {hotel.title}
-                    </li>
-                  ))}
+                <ul className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-80 overflow-y-auto w-80">
+                  {filteredSuggestions.map(hotel => {
+                    // Get first image for preview
+                    const firstImage = hotel.images && hotel.images.length > 0 
+                      ? (hotel.images[0].startsWith('data:') ? hotel.images[0] : (hotel.images[0].startsWith('http') ? hotel.images[0] : `http://localhost:5000${hotel.images[0]}`))
+                      : null;
+                    return (
+                      <li
+                        key={hotel.id}
+                        className="px-3 py-2 cursor-pointer hover:bg-slate-100 text-slate-700 flex items-center gap-3"
+                        onMouseDown={() => handleDropdownSelect(hotel)}
+                      >
+                        {firstImage ? (
+                          <img src={firstImage} alt={hotel.title} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-lg bg-slate-200 flex items-center justify-center flex-shrink-0">
+                            <span className="material-symbols-outlined text-slate-400">hotel</span>
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{hotel.title}</p>
+                          {hotel.description && <p className="text-xs text-slate-500 truncate">{hotel.description}</p>}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>

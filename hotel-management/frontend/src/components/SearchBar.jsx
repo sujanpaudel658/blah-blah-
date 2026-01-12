@@ -50,12 +50,30 @@ const SearchBar = ({ items, onResults, keys = ['title', 'description'], placehol
         onChange={e => setQuery(e.target.value)}
       />
       <ul className="bg-white rounded-lg shadow divide-y divide-slate-100">
-        {results.map(item => (
-          <li key={item.id} className="px-4 py-2 hover:bg-slate-50">
-            <div className="font-semibold text-slate-800">{item.title}</div>
-            <div className="text-slate-500 text-sm">{item.description}</div>
-          </li>
-        ))}
+        {results.map(item => {
+          // Get first image for preview
+          const firstImage = item.images && item.images.length > 0 
+            ? (item.images[0].startsWith('data:') ? item.images[0] : (item.images[0].startsWith('http') ? item.images[0] : `http://localhost:5000${item.images[0]}`))
+            : null;
+          return (
+            <li key={item.id} className="px-4 py-3 hover:bg-slate-50 flex items-center gap-3">
+              {firstImage ? (
+                <img src={firstImage} alt={item.title} className="w-14 h-14 rounded-lg object-cover flex-shrink-0" />
+              ) : (
+                <div className="w-14 h-14 rounded-lg bg-slate-200 flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-slate-400">hotel</span>
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-slate-800 truncate">{item.title}</div>
+                <div className="text-slate-500 text-sm truncate">{item.description}</div>
+              </div>
+              {item.images && item.images.length > 1 && (
+                <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">+{item.images.length - 1} photos</span>
+              )}
+            </li>
+          );
+        })}
         {results.length === 0 && (
           <li className="px-4 py-2 text-slate-400">No results found.</li>
         )}

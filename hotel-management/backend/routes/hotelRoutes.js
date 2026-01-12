@@ -1,22 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
 const { getAllHotels, updateHotel } = require('../controllers/superAdminController');
 const { protect } = require('../middleware/auth');
-
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({ storage: storage });
 
 // Public endpoint to get all hotels
 router.get('/', getAllHotels);
@@ -51,22 +36,23 @@ router.get('/:id', async (req, res) => {
 // Update hotel (for admins)
 router.put('/:id', protect, updateHotel);
 
-// Upload images (multiple)
-router.post('/upload', protect, upload.array('images', 10), (req, res) => {
+// Upload images (base64)
+router.post('/upload', protect, (req, res) => {
   try {
-    if (!req.files || req.files.length === 0) {
+    const { images } = req.body;
+    
+    if (!images || !Array.isArray(images) || images.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'No files uploaded'
+        message: 'No images provided'
       });
     }
 
-    const imageUrls = req.files.map(file => `/uploads/${file.filename}`);
-
+    // Images are already base64 data URLs
     res.json({
       success: true,
       message: 'Images uploaded successfully',
-      imageUrls
+      imageUrls: images
     });
   } catch (error) {
     console.error('Upload error:', error);

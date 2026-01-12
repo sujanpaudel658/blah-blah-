@@ -18,7 +18,16 @@ pool.getConnection((err, connection) => {
     console.error('DB connection error:', err.message);
   } else {
     console.log('✓ Database connected');
-    connection.release();
+    // Try to set max_allowed_packet for large image uploads
+    connection.query('SET GLOBAL max_allowed_packet=67108864', (err) => {
+      if (err) {
+        console.log('⚠ Note: Could not set max_allowed_packet (may need admin privileges)');
+        console.log('  To fix: Run "SET GLOBAL max_allowed_packet=67108864" in MySQL as admin');
+      } else {
+        console.log('✓ max_allowed_packet set to 64MB');
+      }
+      connection.release();
+    });
   }
 });
 

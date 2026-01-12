@@ -8,6 +8,8 @@ const UserDashboard = () => {
   const [user, setUser] = useState(null);
   const [hotels, setHotels] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
+  const [selectedHotel, setSelectedHotel] = useState(null);
+  const [showModal, setShowModal] = useState(false);
 
   // Fetch hotels from backend for navbar suggestions
   useEffect(() => {
@@ -63,7 +65,15 @@ const UserDashboard = () => {
     navigate('/login');
   };
 
+  const handleHotelClick = (hotel) => {
+    setSelectedHotel(hotel);
+    setShowModal(true);
+  };
 
+  const closeModal = () => {
+    setShowModal(false);
+    setSelectedHotel(null);
+  };
 
   return (
     <div className="min-h-screen bg-[#f5f6f8] font-['Space_Grotesk'] text-slate-900">
@@ -162,11 +172,11 @@ const UserDashboard = () => {
           <h2 className="text-2xl font-bold text-slate-900 mb-6">Search Results</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {searchResults.map(hotel => (
-              <div key={hotel.id} className="bg-white rounded-2xl shadow-lg overflow-hidden">
+              <div key={hotel.id} className="bg-white rounded-2xl shadow-lg overflow-hidden cursor-pointer hover:shadow-xl transition-shadow" onClick={() => handleHotelClick(hotel)}>
                 {hotel.images && hotel.images.length > 0 && (
                   <div className="relative h-48 overflow-hidden">
                     <img 
-                      src={hotel.images[0].startsWith('http') ? hotel.images[0] : `http://localhost:5000${hotel.images[0]}`} 
+                      src={hotel.images[0].startsWith('data:') ? hotel.images[0] : (hotel.images[0].startsWith('http') ? hotel.images[0] : `http://localhost:5000${hotel.images[0]}`)} 
                       alt={hotel.title} 
                       className="w-full h-full object-cover" 
                     />
@@ -188,6 +198,37 @@ const UserDashboard = () => {
             ))}
           </div>
         </section>
+      )}
+
+      {/* Hotel Detail Modal */}
+      {showModal && selectedHotel && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-2xl font-bold text-slate-900">{selectedHotel.title}</h3>
+                <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
+              </div>
+              <p className="text-slate-600 mb-4">{selectedHotel.description}</p>
+              {selectedHotel.fullDescription && (
+                <p className="text-slate-500 text-sm mb-4">{selectedHotel.fullDescription}</p>
+              )}
+              {selectedHotel.images && selectedHotel.images.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {selectedHotel.images.map((image, index) => (
+                    <div key={index} className="relative">
+                      <img 
+                        src={image.startsWith('data:') ? image : (image.startsWith('http') ? image : `http://localhost:5000${image}`)} 
+                        alt={`${selectedHotel.title} ${index + 1}`} 
+                        className="w-full h-48 object-cover rounded-lg" 
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

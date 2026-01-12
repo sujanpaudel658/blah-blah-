@@ -64,12 +64,25 @@ exports.updateHotel = async (req, res) => {
     const { id } = req.params;
     const { name, address, city, country, phone, email, description, image } = req.body;
 
-    console.log('Updating hotel with data:', { id, name, address, city, country, phone, email, description, image });
+    // Log without the full image data
+    console.log('Updating hotel:', { 
+      id, name, address, city, country, phone, email, description, 
+      imageLength: image ? image.length : 0,
+      imageIsArray: image ? (image.startsWith('[') ? 'JSON array' : 'single value') : 'null'
+    });
 
     if (!id) {
       return res.status(400).json({
         success: false,
         message: 'Hotel ID is required'
+      });
+    }
+
+    // Check if image data is too large (MySQL packet size limit)
+    if (image && image.length > 16000000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image data too large. Please reduce number of images or image quality.'
       });
     }
 
