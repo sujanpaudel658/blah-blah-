@@ -554,8 +554,8 @@ const AdminDashboard = () => {
               </div>
               {hotel && (
                 <div className="p-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
-                  <button onClick={handleSaveAll} className="w-full bg-primary text-white py-3 rounded-lg hover:bg-primary/90 transition-colors font-semibold shadow-lg">
-                    💾 Save Changes
+                  <button onClick={handleSaveAll} className="w-full bg-primary text-black py-3 rounded-lg hover:bg-primary/90 transition-colors font-semibold shadow-lg">
+                     Save Changes
                   </button>
                 </div>
               )}

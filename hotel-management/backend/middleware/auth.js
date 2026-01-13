@@ -4,90 +4,57 @@ const db = require('../config/db');
 // Verify JWT token
 exports.protect = async (req, res, next) => {
   try {
-    let token;
-
-    // check for token in authorization header
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-      token = req.headers.authorization.split(' ')[1];
-    }
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer') ? authHeader.split(' ')[1] : null;
 
     if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Not authorized to access this route'
-      });
+      return res.status(401).json({ success: false, message: 'Not authorized to access this route' });
     }
 
-    // verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // fetch user from database
     const [users] = await db.query(
       'SELECT id, full_name, email, role, hotel_id FROM users WHERE id = ?',
       [decoded.id]
     );
 
     if (users.length === 0) {
-      return res.status(401).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(401).json({ success: false, message: 'User not found' });
     }
 
-    // attach user to request
     req.user = users[0];
     next();
-
   } catch (error) {
-    console.error('Auth middleware error:', error);
-    console.error('Token verification failed:', error.message);
-    return res.status(401).json({
-      success: false,
-      message: 'Not authorized, token failed',
-      error: error.message
-    });
+    console.error('Auth middleware error:', error.message);
+    return res.status(401).json({ success: false, message: 'Not authorized, token failed' });
   }
 };
 
 // Check if user has required role
-exports.authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Not authorized'
-      });
-    }
-
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: `User role '${req.user.role}' is not authorized to access this route`
-      });
-    }
-
-    next();
-  };
+exports.authorize = (...roles) => (req, res, next) => {
+  if (!req.user || !roles.includes(req.user.role)) {
+    return res.status(403).json({
+      success: false,
+      message: `Role '${req.user?.role || 'unknown'}' is not authorized`
+    });
+  }
+  next();
 };
 
-// Superadmin only middleware
+// Role-specific middleware shortcuts
 exports.superAdminOnly = (req, res, next) => {
-  if (req.user.role !== 'superadmin') {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied. Super Admin only.'
-    });
+  if (req.user?.role !== 'superadmin') {
+    return res.status(403).json({ success: false, message: 'Access denied. Super Admin only.' });
   }
   next();
 };
 
-// Admin or Superadmin middleware
 exports.adminOnly = (req, res, next) => {
-  if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied. Admin only.'
-    });
+  if (!['admin', 'superadmin'].includes(req.user?.role)) {
+    return res.status(403).json({ success: false, message: 'Access denied. Admin only.' });
   }
   next();
 };
+
+// Alias for consistency with userRoutes
+exports.authenticateToken = exports.protect;
+exports.requireRole = (roles) => exports.authorize(...roles);

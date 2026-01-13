@@ -12,23 +12,17 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
-// quick test to see if we're connected
+// Test connection on startup
 pool.getConnection((err, connection) => {
   if (err) {
-    console.error('DB connection error:', err);
-  } else {
-    console.log('✓ Database connected');
-    // Try to set max_allowed_packet for large image uploads
-    connection.query('SET GLOBAL max_allowed_packet=67108864', (err) => {
-      if (err) {
-        console.log('⚠ Note: Could not set max_allowed_packet (may need admin privileges)');
-        console.log('  To fix: Run "SET GLOBAL max_allowed_packet=67108864" in MySQL as admin');
-      } else {
-        console.log('✓ max_allowed_packet set to 64MB');
-      }
-      connection.release();
-    });
+    console.error('❌ Database connection failed:', err.message);
+    return;
   }
+  console.log('✓ Database connected');
+  connection.query('SET GLOBAL max_allowed_packet=67108864', (err) => {
+    if (!err) console.log('✓ max_allowed_packet set to 64MB');
+    connection.release();
+  });
 });
 
 module.exports = pool.promise();

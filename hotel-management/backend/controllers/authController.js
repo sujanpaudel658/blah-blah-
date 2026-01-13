@@ -2,110 +2,62 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 
-// generate JWT - keeping it simple for now
-const createToken = (userId) => {
-  return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE || '7d'
-  });
-};
+// Helper functions
+const createToken = (payload) => jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-// format user object before sending - don't wanna send password lol
-const formatUser = (user) => {
-  return {
-    id: user.id,
-    fullName: user.full_name,
-    email: user.email,
-    phone: user.phone,
-    role: user.role,
-    hotel_id: user.hotel_id
-  };
-};
+const formatUser = (user) => ({
+  id: user.id,
+  fullName: user.full_name,
+  email: user.email,
+  phone: user.phone,
+  role: user.role,
+  hotel_id: user.hotel_id
+});
+
+const getRedirectPath = (role) => ({
+  superadmin: '/superadmin/dashboard',
+  admin: '/admin/dashboard'
+}[role] || '/guest/dashboard');
 
 // Signup handler
 exports.signup = async (req, res) => {
   try {
     const { fullName, email, phone, password } = req.body;
 
-    // basic checks
     if (!fullName || !email || !phone || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'All fields are required'
-      });
+      return res.status(400).json({ success: false, message: 'All fields are required' });
     }
 
-    // check if user already exists
-    const [existingUser] = await db.query(
-      'SELECT id FROM users WHERE email = ?',
-      [email]
-    );
-
+    const [existingUser] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
     if (existingUser.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email already registered'
-      });
+      return res.status(400).json({ success: false, message: 'Email already registered' });
     }
 
-    // hash password
     const hashedPass = await bcrypt.hash(password, 10);
 
     // Check if email matches a hotel admin email
-    const [hotels] = await db.query(
-      'SELECT id FROM hotels WHERE email = ?',
-      [email]
+    const [hotels] = await db.query('SELECT id FROM hotels WHERE email = ?', [email]);
+    const isHotelAdmin = hotels.length > 0;
+    const role = isHotelAdmin ? 'admin' : 'guest';
+    const hotelId = isHotelAdmin ? hotels[0].id : null;
+
+    const [result] = await db.query(
+      'INSERT INTO users (full_name, email, phone, password, role, hotel_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [fullName, email, phone, hashedPass, role, hotelId]
     );
 
-    let role = 'guest';
-    let hotelId = null;
-    let redirectPath = '/guest/dashboard';
-    if (hotels.length > 0) {
-      // Email matches a hotel admin email, assign admin role and hotel_id
-      role = 'admin';
-      hotelId = hotels[0].id;
-      redirectPath = '/admin/dashboard';
-    }
-
-    // Insert user with determined role and hotel_id (if admin)
-    let query, params;
-    if (role === 'admin') {
-      query = 'INSERT INTO users (full_name, email, phone, password, role, hotel_id) VALUES (?, ?, ?, ?, ?, ?)';
-      params = [fullName, email, phone, hashedPass, role, hotelId];
-    } else {
-      query = 'INSERT INTO users (full_name, email, phone, password, role) VALUES (?, ?, ?, ?, ?)';
-      params = [fullName, email, phone, hashedPass, role];
-    }
-    const [result] = await db.query(query, params);
-
-    // create token with role
-    const token = jwt.sign(
-      { id: result.insertId, email, role },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = createToken({ id: result.insertId, email, role });
 
     res.status(201).json({
       success: true,
       message: 'Account created successfully',
       token,
-      user: {
-        id: result.insertId,
-        fullName,
-        email,
-        phone,
-        role,
-        hotelId
-      },
-      redirectPath
+      user: { id: result.insertId, fullName, email, phone, role, hotelId },
+      redirectPath: getRedirectPath(role)
     });
-
   } catch (error) {
     console.error('Signup error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Registration failed',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    res.status(500).json({ success: false, message: 'Registration failed' });
   }
 };
 
@@ -114,183 +66,116 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // validation
     if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email and password required'
-      });
+      return res.status(400).json({ success: false, message: 'Email and password required' });
     }
 
-    // find user
-    const [users] = await db.query(
-      'SELECT * FROM users WHERE email = ?',
-      [email]
-    );
-
+    const [users] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
     if (users.length === 0) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
     const user = users[0];
-
-    // check password
-    const isMatch = await bcrypt.compare(password, user.password);
-
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
+    
+    // Check if user has a password (Google users may not)
+    if (!user.password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'This account was created with Google Sign-In. Please set a password first.',
+        requiresPasswordSet: true,
+        userId: user.id
       });
     }
 
-    // generate token with role
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    // determine redirect path based on role
-    let redirectPath = '/guest/dashboard';
-    if (user.role === 'superadmin') {
-      redirectPath = '/superadmin/dashboard';
-    } else if (user.role === 'admin') {
-      redirectPath = '/admin/dashboard';
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
+
+    const token = createToken({ id: user.id, email: user.email, role: user.role });
 
     res.json({
       success: true,
       message: 'Login successful',
       token,
       user: formatUser(user),
-      redirectPath
+      redirectPath: getRedirectPath(user.role)
     });
-
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Login failed',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    res.status(500).json({ success: false, message: 'Login failed' });
   }
 };
 
-// Google OAuth handler with RBAC
+// Google OAuth handler
 exports.googleAuth = async (req, res) => {
   try {
     const { credential } = req.body;
-
-    // validation
     if (!credential) {
-      return res.status(400).json({
-        success: false,
-        message: 'No credential provided'
-      });
+      return res.status(400).json({ success: false, message: 'No credential provided' });
     }
 
-    // decode the JWT token from Google
+    // Decode Google JWT
     const parts = credential.split('.');
     if (parts.length !== 3) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid credential format'
-      });
+      return res.status(400).json({ success: false, message: 'Invalid credential format' });
     }
 
-    const payload = parts[1];
-    const decodedPayload = Buffer.from(payload, 'base64').toString('utf-8');
-    const decoded = JSON.parse(decodedPayload);
-
+    const decoded = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
     const { email, name, sub: googleId } = decoded;
 
-    // Check if email matches a hotel admin email
-    const [hotels] = await db.query('SELECT id, email FROM hotels WHERE email = ?', [email]);
+    // Check if email matches a hotel admin
+    const [hotels] = await db.query('SELECT id FROM hotels WHERE email = ?', [email]);
     const isHotelAdmin = hotels.length > 0;
     const hotelId = isHotelAdmin ? hotels[0].id : null;
     const role = isHotelAdmin ? 'admin' : 'guest';
 
-    // check if user exists by email or google_id
+    // Find or create user
     const [existingUsers] = await db.query(
       'SELECT * FROM users WHERE email = ? OR google_id = ?',
       [email, googleId]
     );
 
-    let user;
-    let userId;
+    let user, userId;
 
     if (existingUsers.length > 0) {
-      // user exists - update google_id if not set
       user = existingUsers[0];
       userId = user.id;
       
+      // Update google_id if not set
       if (!user.google_id) {
-        await db.query(
-          'UPDATE users SET google_id = ? WHERE id = ?',
-          [googleId, userId]
-        );
+        await db.query('UPDATE users SET google_id = ? WHERE id = ?', [googleId, userId]);
       }
 
-      // If user is now admin but was guest, update role and hotel_id
+      // Promote to admin if email matches hotel
       if (isHotelAdmin && user.role !== 'admin') {
-        await db.query(
-          'UPDATE users SET role = ?, hotel_id = ? WHERE id = ?',
-          [role, hotelId, userId]
-        );
+        await db.query('UPDATE users SET role = ?, hotel_id = ? WHERE id = ?', [role, hotelId, userId]);
         user.role = role;
         user.hotel_id = hotelId;
       }
     } else {
-      // create new user with appropriate role
+      // Create new user
       const [result] = await db.query(
         'INSERT INTO users (google_id, full_name, email, role, hotel_id) VALUES (?, ?, ?, ?, ?)',
         [googleId, name, email, role, hotelId]
       );
-      
       userId = result.insertId;
-      
-      // fetch the newly created user
-      const [newUsers] = await db.query(
-        'SELECT * FROM users WHERE id = ?',
-        [userId]
-      );
+      const [newUsers] = await db.query('SELECT * FROM users WHERE id = ?', [userId]);
       user = newUsers[0];
     }
 
-    // generate token with role
-    const token = jwt.sign(
-      { id: userId, email: user.email, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    // determine redirect path based on role
-    let redirectPath = '/guest/dashboard';
-    if (user.role === 'superadmin') {
-      redirectPath = '/superadmin/dashboard';
-    } else if (user.role === 'admin') {
-      redirectPath = '/admin/dashboard';
-    }
+    const token = createToken({ id: userId, email: user.email, role: user.role });
 
     res.json({
       success: true,
       message: 'Google authentication successful',
       token,
       user: formatUser(user),
-      redirectPath
+      redirectPath: getRedirectPath(user.role)
     });
-
   } catch (error) {
     console.error('Google auth error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Google authentication failed',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    res.status(500).json({ success: false, message: 'Google authentication failed' });
   }
 };
 
@@ -303,29 +188,44 @@ exports.getMe = async (req, res) => {
     );
 
     if (users.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
+
+    res.json({ success: true, user: formatUser(users[0]) });
+  } catch (error) {
+    console.error('Get me error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get user' });
+  }
+};
+
+// Set password for Google users
+exports.setPassword = async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+
+    if (!email || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Email and password required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+    }
+
+    const [users] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
+    if (users.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    await db.query('UPDATE users SET password = ? WHERE email = ?', [hashedPassword, email]);
 
     res.json({
       success: true,
-      user: {
-        id: users[0].id,
-        fullName: users[0].full_name,
-        email: users[0].email,
-        phone: users[0].phone,
-        role: users[0].role,
-        hotel_id: users[0].hotel_id
-      }
+      message: 'Password set successfully. You can now log in with your email and password.'
     });
   } catch (error) {
-    console.error('Get me error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get user',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    console.error('Set password error:', error);
+    res.status(500).json({ success: false, message: 'Failed to set password' });
   }
 };
