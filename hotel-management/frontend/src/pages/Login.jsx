@@ -18,6 +18,12 @@ const Login = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordSetError, setPasswordSetError] = useState('');
 
+  // State for forgot password mode
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [forgotPasswordError, setForgotPasswordError] = useState('');
+  const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState('');
+
   useEffect(() => {
     // Initialize Google Sign-In
     if (!document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) {
@@ -184,6 +190,33 @@ const Login = () => {
     }
   };
 
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setForgotPasswordError('');
+    setForgotPasswordSuccess('');
+
+    if (!forgotPasswordEmail) {
+      setForgotPasswordError('Please enter your email address');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await axios.post('http://localhost:5000/api/auth/request-password-reset', {
+        email: forgotPasswordEmail
+      });
+
+      setForgotPasswordSuccess(response.data.message || 'Password reset link has been sent to your email.');
+      
+    } catch (err) {
+      console.error('Forgot password error:', err);
+      setForgotPasswordError(err.response?.data?.message || 'Failed to send reset link. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-[#10182F]">
       {/* Left: Login Form */}
@@ -269,6 +302,59 @@ const Login = () => {
                 </button>
               </form>
             </div>
+          ) : showForgotPassword ? (
+            // Forgot Password Form
+            <div className="bg-[#181F36] rounded-2xl shadow-xl p-6 sm:p-8">
+              <h2 className="text-xl sm:text-2xl font-bold mb-4">Forgot Password</h2>
+              <p className="text-sm text-[#B0B8D1] mb-6">Enter your email address and we'll send you a link to reset your password.</p>
+              
+              {forgotPasswordError && (
+                <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-3 sm:p-4 rounded">
+                  <p className="text-xs sm:text-sm text-red-700">{forgotPasswordError}</p>
+                </div>
+              )}
+
+              {forgotPasswordSuccess && (
+                <div className="mb-6 bg-green-50 border-l-4 border-green-500 p-3 sm:p-4 rounded">
+                  <p className="text-xs sm:text-sm text-green-700">{forgotPasswordSuccess}</p>
+                </div>
+              )}
+
+              <form onSubmit={handleForgotPassword} className="space-y-4 sm:space-y-6">
+                <div>
+                  <label className="block text-xs font-semibold text-[#B0B8D1] mb-2 tracking-widest">EMAIL</label>
+                  <input
+                    type="email"
+                    value={forgotPasswordEmail}
+                    onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                    className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-[#232B47] border border-[#232B47] rounded-lg text-sm sm:text-base text-white placeholder-[#B0B8D1] focus:ring-2 focus:ring-[#6C63FF] focus:border-transparent outline-none transition"
+                    placeholder="Enter your email address"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-[#6C63FF] hover:bg-[#5548C8] text-white py-2 sm:py-3 rounded-lg font-bold shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
+                >
+                  {loading ? 'Sending...' : 'SEND RESET LINK'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForgotPassword(false);
+                    setForgotPasswordEmail('');
+                    setForgotPasswordError('');
+                    setForgotPasswordSuccess('');
+                  }}
+                  className="w-full bg-gray-600 hover:bg-gray-700 text-white py-2 sm:py-3 rounded-lg font-bold transition-all duration-200 text-sm sm:text-base"
+                >
+                  Back to Login
+                </button>
+              </form>
+            </div>
           ) : (
             // Login Form
             <div className="bg-[#181F36] rounded-2xl shadow-xl p-6 sm:p-8">
@@ -305,7 +391,18 @@ const Login = () => {
                     <input type="checkbox" className="w-4 h-4 text-[#6C63FF] border-[#232B47] rounded focus:ring-[#6C63FF]" />
                     <span className="ml-2">Remember me</span>
                   </label>
-                  <button type="button" className="text-xs text-[#6C63FF] hover:underline font-semibold">Forgot Password?</button>
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setShowForgotPassword(true);
+                      setForgotPasswordEmail(email);
+                      setForgotPasswordError('');
+                      setForgotPasswordSuccess('');
+                    }}
+                    className="text-xs text-[#6C63FF] hover:underline font-semibold"
+                  >
+                    Forgot Password?
+                  </button>
                 </div>
                 <button
                   type="submit"
