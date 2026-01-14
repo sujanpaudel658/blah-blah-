@@ -218,9 +218,9 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-[#10182F]">
+    <div className="h-screen overflow-hidden flex flex-col md:flex-row bg-[#10182F]">
       {/* Left: Login Form */}
-      <div className="w-full md:w-1/2 flex flex-col justify-center px-4 sm:px-6 md:px-8 py-8 sm:py-12 md:py-0 md:min-h-screen bg-[#10182F] text-white relative z-10">
+      <div className="w-full md:w-1/2 h-screen flex flex-col justify-center px-4 sm:px-6 md:px-8 py-8 sm:py-12 md:py-0 bg-[#10182F] text-white relative z-10">
         <div className="max-w-md w-full mx-auto">
           {/* Logo/Header */}
           <div className="mb-6 sm:mb-10 flex items-center gap-3">
@@ -440,8 +440,8 @@ const Login = () => {
         </div>
       </div>
       {/* Right: Image & Quote */}
-      <div className="hidden md:flex w-1/2 min-h-screen relative items-center justify-center bg-[#181F36]">
-        <img src="/images/unnamed.png" alt="Hotel Lobby" className="absolute inset-0 w-full h-full object-cover opacity-80" />
+      <div className="hidden md:flex w-1/2 h-screen relative items-center justify-center bg-[#181F36]">
+        <img src="/images/unnamed.png" alt="Hotel Lobby" className="absolute inset-0 w-full h-full object-cover object-center opacity-80" />
         <div className="relative z-10 flex flex-col items-start justify-center h-full px-8 lg:px-16">
           <div className="mb-8">
             <div className="flex items-center gap-1 mb-2">
