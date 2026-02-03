@@ -15,7 +15,7 @@ const AdminDashboard = () => {
     // check authentication and role
     const token = localStorage.getItem('token');
     const userData = localStorage.getItem('user');
-    
+
     if (!token || !userData) {
       navigate('/login');
       return;
@@ -23,7 +23,7 @@ const AdminDashboard = () => {
 
     const parsedUser = JSON.parse(userData);
     console.log('Stored user:', parsedUser);
-    
+
     // verify admin role
     if (parsedUser.role !== 'admin' && parsedUser.role !== 'superadmin') {
       navigate('/guest/dashboard');
@@ -38,11 +38,11 @@ const AdminDashboard = () => {
         });
         const freshUser = response.data.user;
         console.log('Fresh user from backend:', freshUser);
-        
+
         // Update localStorage with fresh data
         localStorage.setItem('user', JSON.stringify(freshUser));
         setUser(freshUser);
-        
+
         // Fetch hotel if user has hotel_id
         if (freshUser.hotel_id) {
           console.log('Fetching hotel for hotel_id:', freshUser.hotel_id);
@@ -73,7 +73,7 @@ const AdminDashboard = () => {
       console.log('Hotel response:', response.data);
       setHotel(response.data.hotel);
       setDescription(response.data.hotel.description || '');
-      
+
       // Parse images from JSON string
       let hotelImages = [];
       if (response.data.hotel.image) {
@@ -102,7 +102,7 @@ const AdminDashboard = () => {
     // Handle file selection for image uploads
     const files = Array.from(e.target.files);
     setImages(files);
-    
+
     // Create previews for selected files
     const previews = files.map(file => {
       return new Promise((resolve) => {
@@ -111,7 +111,7 @@ const AdminDashboard = () => {
         reader.readAsDataURL(file);
       });
     });
-    
+
     Promise.all(previews).then(setImagePreviews);
   };
 
@@ -140,13 +140,13 @@ const AdminDashboard = () => {
           if (hotel.image) existingImages = [hotel.image];
         }
       }
-      
+
       const allImages = [...existingImages, ...base64Images];
-      
+
       // Update hotel with new image array directly
       await updateHotel({ image: JSON.stringify(allImages) });
       setImages([]);
-      
+
       if (!suppressMessage) {
         setSuccessMessage('Images uploaded and saved successfully!');
         setTimeout(() => setSuccessMessage(''), 3000);
@@ -168,7 +168,7 @@ const AdminDashboard = () => {
         existingImages = [hotel.image];
       }
     }
-    
+
     const updatedImages = existingImages.filter((_, index) => index !== indexToRemove);
     await updateHotel({ image: JSON.stringify(updatedImages) });
     setSuccessMessage('Image removed successfully!');
@@ -201,7 +201,7 @@ const AdminDashboard = () => {
 
       setHotel(response.data.hotel);
       setDescription(response.data.hotel.description || '');
-      
+
       // Update image previews
       if (response.data.hotel.image) {
         try {
@@ -228,19 +228,19 @@ const AdminDashboard = () => {
           const canvas = document.createElement('canvas');
           let width = img.width;
           let height = img.height;
-          
+
           // Scale down if larger than maxWidth
           if (width > maxWidth) {
             height = (height * maxWidth) / width;
             width = maxWidth;
           }
-          
+
           canvas.width = width;
           canvas.height = height;
-          
+
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
-          
+
           // Convert to compressed JPEG
           const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
           resolve(compressedBase64);
@@ -254,11 +254,11 @@ const AdminDashboard = () => {
   const handleSaveAll = async () => {
     try {
       let updatedHotel = { ...hotel };
-      
+
       // First, handle new images if any are selected
       if (images.length > 0) {
         console.log('Compressing and converting', images.length, 'new images...');
-        
+
         // Compress and convert files to base64
         const base64Images = [];
         for (const file of images) {
@@ -278,43 +278,43 @@ const AdminDashboard = () => {
           }
         }
         console.log('Existing images:', existingImages.length);
-        
+
         const allImages = [...existingImages, ...base64Images];
         console.log('Total images to save:', allImages.length);
-        
+
         // Check total size
         const totalSize = JSON.stringify(allImages).length;
         console.log('Total data size:', Math.round(totalSize / 1024 / 1024 * 100) / 100, 'MB');
-        
+
         if (totalSize > 15000000) { // 15MB limit
           setSuccessMessage('Error: Total image size too large. Please remove some images or use smaller images.');
           setTimeout(() => setSuccessMessage(''), 5000);
           return;
         }
-        
+
         updatedHotel.image = JSON.stringify(allImages);
       }
-      
+
       // Update description
       updatedHotel.description = description;
-      
+
       // Save everything in one API call
       console.log('Saving hotel with', updatedHotel.image ? JSON.parse(updatedHotel.image).length : 0, 'images and description:', updatedHotel.description);
-      
+
       const token = localStorage.getItem('token');
       const response = await axios.put(`http://localhost:5000/api/hotels/${hotel.id}`, updatedHotel, {
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
-      
+
       console.log('Save response:', response.data);
-      
+
       // Update local state with response
       setHotel(response.data.hotel);
       setDescription(response.data.hotel.description || '');
       setImages([]); // Clear selected files
-      
+
       // Update image previews from saved data
       if (response.data.hotel.image) {
         try {
@@ -325,7 +325,7 @@ const AdminDashboard = () => {
           setImagePreviews([]);
         }
       }
-      
+
       setSuccessMessage('All changes saved successfully!');
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
@@ -386,6 +386,20 @@ const AdminDashboard = () => {
             -ms-overflow-style: none;
             scrollbar-width: none;
         }
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f1f5f9;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
+        }
         body {
           min-height: max(884px, 100dvh);
         }
@@ -426,7 +440,7 @@ const AdminDashboard = () => {
         </nav>
         <div className="p-4 border-t-2 border-slate-100">
           <div className="bg-slate-50 rounded-2xl p-4 flex items-center gap-3">
-            <div className="size-10 rounded-full border-2 border-white bg-cover bg-center" style={{backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAGsGtWWn6ZBN4kRFNuusTcvkyoHZHcsCyq1B6IP34uUfV89PTApB9OoqjXGd5Y26-f0JkFq54qslSxgvRZpFkzwl0x2rWSU3SNzn1OJqVY4mR23laxy4-UCd1ahZL-trjdASNppqbFWV35Rcp7TLEwcGqlA3choxi9dfVDCH1XWuAmLV4DtBRplAvQAS5wNNLxe6fAX8jQxjV1Mit3hxNn7McAUapwxcU2e2JnGRnUadE_jbHbNL1VtL7Dm_BlTKdtC60h3F7xVzU')"}}></div>
+            <div className="size-10 rounded-full border-2 border-white bg-cover bg-center" style={{ backgroundImage: "url('https://lh3.googleusercontent.com/aida-public/AB6AXuAGsGtWWn6ZBN4kRFNuusTcvkyoHZHcsCyq1B6IP34uUfV89PTApB9OoqjXGd5Y26-f0JkFq54qslSxgvRZpFkzwl0x2rWSU3SNzn1OJqVY4mR23laxy4-UCd1ahZL-trjdASNppqbFWV35Rcp7TLEwcGqlA3choxi9dfVDCH1XWuAmLV4DtBRplAvQAS5wNNLxe6fAX8jQxjV1Mit3hxNn7McAUapwxcU2e2JnGRnUadE_jbHbNL1VtL7Dm_BlTKdtC60h3F7xVzU')" }}></div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-slate-900 truncate">{hotel?.name || user?.name || 'Hotel Admin'}</p>
               <p className="text-xs text-slate-500">Owner</p>
@@ -442,7 +456,7 @@ const AdminDashboard = () => {
           <div className="flex items-center gap-8 flex-1">
             <div className="max-w-md w-full relative">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
-              <input className="w-full bg-slate-50 border-slate-200 rounded-xl pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary" placeholder="Search bookings, guests, or rooms..." type="text"/>
+              <input className="w-full bg-slate-50 border-slate-200 rounded-xl pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary" placeholder="Search bookings, guests, or rooms..." type="text" />
             </div>
             <nav className="hidden lg:flex items-center gap-6">
               <a className="text-sm font-medium text-slate-600 hover:text-primary transition-colors" href="#">Destinations</a>
@@ -496,67 +510,155 @@ const AdminDashboard = () => {
             </div>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden flex flex-col" style={{maxHeight: '600px'}}>
-              <div className="p-6 border-b border-slate-100 flex items-center gap-3 flex-shrink-0">
-                <span className="material-symbols-outlined text-primary">hotel</span>
-                <h3 className="font-bold text-lg">Hotel Management</h3>
+            {/* Hotel Management Card - FULL WIDTH REFACTOR */}
+            <div className="lg:col-span-3 bg-white rounded-3xl border-2 border-slate-200 shadow-xl overflow-hidden flex flex-col">
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                    <span className="material-symbols-outlined">hotel</span>
+                  </div>
+                  <div>
+                    <h3 className="font-black text-xl text-slate-900 tracking-tight">Property Profile</h3>
+                    <p className="text-xs text-slate-500 font-medium">Manage your hotel's public appearance</p>
+                  </div>
+                </div>
+                {hotel && (
+                  <button onClick={handleSaveAll} className="px-6 py-2.5 bg-primary text-white rounded-xl hover:bg-primary/90 transition-all font-bold text-sm shadow-lg shadow-primary/25 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-sm">save</span>
+                    Save Profile
+                  </button>
+                )}
               </div>
-              <div className="p-6 space-y-4 overflow-y-auto flex-1">
+
+              <div className="p-8 space-y-8">
                 {successMessage && (
-                  <div className="bg-green-50 border-l-4 border-green-500 p-3 rounded">
-                    <p className="text-sm text-green-700">{successMessage}</p>
+                  <div className="bg-green-50 border border-green-100 p-4 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                    <span className="material-symbols-outlined text-green-600">check_circle</span>
+                    <p className="text-sm font-bold text-green-700">{successMessage}</p>
                   </div>
                 )}
-                {!hotel && (
-                  <div className="bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded">
-                    <p className="text-sm text-yellow-700">No hotel assigned to your account. Please contact the superadmin.</p>
+
+                {!hotel ? (
+                  <div className="bg-amber-50 border border-amber-100 p-6 rounded-3xl text-center">
+                    <span className="material-symbols-outlined text-amber-600 text-4xl mb-2">warning</span>
+                    <p className="text-amber-900 font-bold">No property assigned</p>
+                    <p className="text-sm text-amber-700/70">Please contact the superadmin to link your account to a hotel property.</p>
                   </div>
-                )}
-                {hotel ? (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Hotel Images</label>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                    {/* Left side: Images */}
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                          <span className="w-1.5 h-4 bg-primary rounded-full"></span>
+                          Gallery ({imagePreviews.length})
+                        </label>
+                        <span className="text-[10px] font-bold text-slate-400">MAX 10MB PER FILE</span>
+                      </div>
+
+                      {/* Dropzone mockup */}
+                      <div
+                        onClick={() => document.getElementById('hotel-image-input').click()}
+                        className="group relative border-2 border-dashed border-slate-200 rounded-3xl p-8 flex flex-col items-center justify-center bg-slate-50/50 hover:bg-white hover:border-primary hover:shadow-2xl hover:shadow-primary/5 transition-all cursor-pointer"
+                      >
+                        <input
+                          id="hotel-image-input"
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={handleImageChange}
+                          className="hidden"
+                        />
+                        <div className="w-14 h-14 rounded-2xl bg-white shadow-sm flex items-center justify-center mb-4 group-hover:scale-110 group-hover:bg-primary group-hover:text-white transition-all duration-300">
+                          <span className="material-symbols-outlined text-2xl">add_photo_alternate</span>
+                        </div>
+                        <p className="text-sm font-black text-slate-900">Upload New Photos</p>
+                        <p className="text-xs text-slate-500 mt-1">Click to browse or drag and drop</p>
+
+                        {images.length > 0 && (
+                          <div className="absolute -bottom-3 px-4 py-1.5 bg-primary text-white text-[10px] font-black rounded-full shadow-lg">
+                            {images.length} FILES SELECTED
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Improved Grid */}
                       {imagePreviews.length > 0 && (
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2 max-h-48 overflow-y-auto">
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 pt-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
                           {imagePreviews.map((preview, index) => (
-                            <div key={index} className="relative">
-                              <img src={preview} alt={`Hotel ${index + 1}`} className="w-full h-24 object-cover rounded-lg" />
-                              <button 
-                                onClick={() => handleRemoveImage(index)}
-                                className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
-                              >
-                                ×
-                              </button>
+                            <div key={index} className="group relative aspect-square rounded-2xl overflow-hidden shadow-sm border border-slate-100">
+                              <img src={preview} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => handleRemoveImage(index)}
+                                  className="w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 hover:scale-110 transition-all shadow-lg"
+                                  title="Remove Image"
+                                >
+                                  <span className="material-symbols-outlined text-lg">delete</span>
+                                </button>
+                                {index === 0 && (
+                                  <div className="absolute top-2 left-2 px-2 py-0.5 bg-primary text-white text-[8px] font-black rounded uppercase tracking-tighter">
+                                    Primary
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
                       )}
-                      <input type="file" accept="image/*" multiple onChange={handleImageChange} className="w-full text-sm mb-2" />
-                      <p className="text-xs text-gray-500 mb-2">Selected files: {images.length}</p>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-2">Description</label>
-                      <textarea
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        className="w-full p-3 border border-slate-200 rounded-lg resize-none"
-                        rows="3"
-                        placeholder="Enter hotel description..."
-                      />
+
+                    {/* Right side: Description & Details */}
+                    <div className="space-y-6">
+                      <div className="space-y-4">
+                        <label className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                          <span className="w-1.5 h-4 bg-primary rounded-full"></span>
+                          Property Description
+                        </label>
+                        <div className="relative group">
+                          <textarea
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl focus:ring-4 focus:ring-primary/10 focus:border-primary focus:bg-white transition-all text-slate-700 leading-relaxed text-sm min-h-[220px] resize-none"
+                            placeholder="Tell guests about your hotel, the location, and what makes it special..."
+                          />
+                          <div className="absolute bottom-4 right-4 text-[10px] font-bold text-slate-400 group-focus-within:text-primary">
+                            {description.length} CHARACTERS
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Property Stats Mockup */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-4 rounded-3xl bg-slate-50 border border-slate-100 flex flex-col items-center justify-center">
+                          <span className="text-xs font-bold text-slate-500 uppercase">Rating</span>
+                          <div className="flex items-center gap-1 text-amber-500 mt-1">
+                            <span className="material-symbols-outlined text-sm FILL">star</span>
+                            <span className="font-black text-slate-900">{hotel?.rating || '0.0'}</span>
+                          </div>
+                        </div>
+                        <div className="p-4 rounded-3xl bg-slate-50 border border-slate-100 flex flex-col items-center justify-center">
+                          <span className="text-xs font-bold text-slate-500 uppercase">Status</span>
+                          <div className="flex items-center gap-1 text-green-600 mt-1">
+                            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                            <span className="font-black text-slate-900">Live</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-gray-500 mb-4">No hotel assigned to your account.</p>
-                    <p className="text-sm text-gray-400">Please contact the superadmin to assign a hotel.</p>
                   </div>
                 )}
               </div>
+
               {hotel && (
-                <div className="p-4 border-t border-slate-100 bg-slate-50 flex-shrink-0">
-                  <button onClick={handleSaveAll} className="w-full bg-primary text-black py-3 rounded-lg hover:bg-primary/90 transition-colors font-semibold shadow-lg">
-                     Save Changes
-                  </button>
+                <div className="px-8 py-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                  <p className="text-xs text-slate-500 italic">Last updated: {new Date().toLocaleDateString()}</p>
+                  <div className="flex gap-3">
+                    <button className="px-5 py-2 text-sm font-bold text-slate-600 hover:text-slate-900 transition-colors">Discard</button>
+                    <button onClick={handleSaveAll} className="px-8 py-2.5 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all font-bold text-sm shadow-xl">
+                      Save Changes
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

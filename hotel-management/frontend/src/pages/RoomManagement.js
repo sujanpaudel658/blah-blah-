@@ -7,43 +7,92 @@ const RoomManagement = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const [roomTypes, setRoomTypes] = useState([]);
+  const [user, setUser] = useState(null);
+
   useEffect(() => {
+    const token = localStorage.getItem('token');
+    const userData = localStorage.getItem('user');
+    if (!token || !userData) {
+      navigate('/login');
+      return;
+    }
+    const parsedUser = JSON.parse(userData);
+    setUser(parsedUser);
+
+    // Fetch room types
+    const fetchRoomTypes = async () => {
+      try {
+        const response = await fetch(`http://localhost:5000/api/rooms/types?hotelId=${parsedUser.hotel_id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.success) setRoomTypes(data.roomTypes);
+      } catch (error) {
+        console.error('Error fetching room types:', error);
+      }
+    };
+
+    fetchRoomTypes();
+
     if (roomId) {
       setIsEditing(true);
-      // TODO: Fetch room data from API using roomId
-      console.log('Editing room with ID:', roomId);
+      const fetchRoom = async () => {
+        try {
+          const response = await fetch(`http://localhost:5000/api/rooms?hotelId=${parsedUser.hotel_id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await response.json();
+          if (data.success) {
+            const room = data.rooms.find(r => r.id === parseInt(roomId));
+            if (room) {
+              setRoomData({
+                name: room.room_number,
+                type: room.room_type_id,
+                floor: room.floor,
+                maxOccupancy: room.max_occupancy,
+                basePrice: room.base_price,
+                extraBedPrice: '0',
+                taxInclusive: true,
+                status: room.status,
+                description: room.notes
+              });
+              setAmenities(room.amenities || {});
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching room:', error);
+        }
+      };
+      fetchRoom();
     } else {
       setIsEditing(false);
     }
-  }, [roomId]);
-  
+  }, [roomId, navigate]);
+
   // Form state
   const [roomData, setRoomData] = useState({
-    name: 'Deluxe Ocean Suite 302',
-    type: 'Deluxe Suite',
-    floor: 3,
-    maxOccupancy: 4,
-    basePrice: '12,500',
-    extraBedPrice: '1,500',
+    name: '',
+    type: '',
+    floor: '',
+    maxOccupancy: '',
+    basePrice: '',
+    extraBedPrice: '',
     taxInclusive: true,
     status: 'available',
-    description: 'The Deluxe Ocean Suite offers breathtaking panoramic views of the coastline. Furnished with premium hardwood floors and local artwork, this suite features a private balcony, a king-sized bed with 400-thread count linens, and a dedicated workspace for business travelers.'
+    description: ''
   });
 
   const [amenities, setAmenities] = useState({
-    wifi: true,
-    ac: true,
+    wifi: false,
+    ac: false,
     tv: false,
-    miniBar: true,
-    coffeeMaker: true,
+    miniBar: false,
+    coffeeMaker: false,
     safe: false
   });
 
-  const [images, setImages] = useState([
-    { id: 1, url: 'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=400', primary: true },
-    { id: 2, url: 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=400', primary: false },
-    { id: 3, url: 'https://images.unsplash.com/photo-1552321554-5fefe8c9ef14?w=400', primary: false }
-  ]);
+  const [images, setImages] = useState([]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -68,9 +117,43 @@ const RoomManagement = () => {
     setImages(prev => prev.filter(img => img.id !== id));
   };
 
-  const handleSave = () => {
-    // TODO: Implement save functionality with API call
-    console.log('Saving room:', { ...roomData, amenities, images });
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const method = isEditing ? 'PUT' : 'POST';
+      const url = isEditing ? `http://localhost:5000/api/rooms/${roomId}` : 'http://localhost:5000/api/rooms';
+
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          hotel_id: user.hotel_id,
+          room_type_id: roomData.type,
+          room_number: roomData.name,
+          floor: roomData.floor,
+          status: roomData.status,
+          notes: roomData.description,
+          amenities: amenities // Send current amenities
+        })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        alert(isEditing ? 'Room updated!' : 'Room created!');
+        navigate('/admin/dashboard');
+      } else {
+        alert('Error: ' + data.message);
+      }
+    } catch (error) {
+      console.error('Save error:', error);
+      alert('Failed to save room');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCancel = () => {
@@ -101,9 +184,9 @@ const RoomManagement = () => {
           <div className="flex items-center gap-4">
             <div className="relative hidden sm:block">
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">search</span>
-              <input 
-                className="bg-gray-100 border-none rounded-lg pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-blue-600 w-64" 
-                placeholder="Search rooms..." 
+              <input
+                className="bg-gray-100 border-none rounded-lg pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-blue-600 w-64"
+                placeholder="Search rooms..."
                 type="text"
               />
             </div>
@@ -144,45 +227,45 @@ const RoomManagement = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <label className="text-sm font-semibold opacity-70">Room Name</label>
-                  <input 
+                  <input
                     name="name"
                     value={roomData.name}
                     onChange={handleInputChange}
-                    className="w-full border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600" 
+                    className="w-full border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600"
                     type="text"
                   />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold opacity-70">Room Type</label>
-                  <select 
+                  <select
                     name="type"
                     value={roomData.type}
                     onChange={handleInputChange}
                     className="w-full border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600"
                   >
-                    <option>Deluxe Suite</option>
-                    <option>Executive Suite</option>
-                    <option>Standard Double</option>
-                    <option>Standard Single</option>
+                    <option value="">Select Type</option>
+                    {roomTypes.map(rt => (
+                      <option key={rt.id} value={rt.id}>{rt.name}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold opacity-70">Floor Number</label>
-                  <input 
+                  <input
                     name="floor"
                     value={roomData.floor}
                     onChange={handleInputChange}
-                    className="w-full border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600" 
+                    className="w-full border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600"
                     type="number"
                   />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold opacity-70">Max Occupancy</label>
-                  <input 
+                  <input
                     name="maxOccupancy"
                     value={roomData.maxOccupancy}
                     onChange={handleInputChange}
-                    className="w-full border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600" 
+                    className="w-full border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600"
                     type="number"
                   />
                 </div>
@@ -200,11 +283,11 @@ const RoomManagement = () => {
                   <label className="text-sm font-semibold opacity-70">Base Price per Night (Rs.)</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-400">Rs.</span>
-                    <input 
+                    <input
                       name="basePrice"
                       value={roomData.basePrice}
                       onChange={handleInputChange}
-                      className="w-full pl-12 border-gray-200 rounded-lg p-3 text-base font-bold focus:border-blue-600 focus:ring-blue-600" 
+                      className="w-full pl-12 border-gray-200 rounded-lg p-3 text-base font-bold focus:border-blue-600 focus:ring-blue-600"
                       type="text"
                     />
                   </div>
@@ -213,11 +296,11 @@ const RoomManagement = () => {
                   <label className="text-sm font-semibold opacity-70">Extra Bed Price (Rs.)</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-400">Rs.</span>
-                    <input 
+                    <input
                       name="extraBedPrice"
                       value={roomData.extraBedPrice}
                       onChange={handleInputChange}
-                      className="w-full pl-12 border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600" 
+                      className="w-full pl-12 border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600"
                       type="text"
                     />
                   </div>
@@ -229,8 +312,8 @@ const RoomManagement = () => {
                   <p className="text-xs text-gray-500">Toggle if the displayed price already includes GST/Service Tax</p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     name="taxInclusive"
                     checked={roomData.taxInclusive}
                     onChange={handleInputChange}
@@ -248,35 +331,32 @@ const RoomManagement = () => {
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
               <h2 className="text-lg font-bold mb-4">Room Status</h2>
               <div className="grid grid-cols-3 gap-3">
-                <button 
+                <button
                   onClick={() => handleStatusChange('available')}
-                  className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${
-                    roomData.status === 'available' 
-                      ? 'border-blue-600 bg-green-50 text-green-700' 
+                  className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${roomData.status === 'available'
+                      ? 'border-blue-600 bg-green-50 text-green-700'
                       : 'border-transparent bg-green-50 text-green-700 opacity-60 hover:border-green-300'
-                  }`}
+                    }`}
                 >
                   <span className="material-symbols-outlined mb-1">check_circle</span>
                   <span className="text-xs font-bold">Available</span>
                 </button>
-                <button 
+                <button
                   onClick={() => handleStatusChange('maintenance')}
-                  className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${
-                    roomData.status === 'maintenance' 
-                      ? 'border-blue-600 bg-orange-50 text-orange-700' 
+                  className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${roomData.status === 'maintenance'
+                      ? 'border-blue-600 bg-orange-50 text-orange-700'
                       : 'border-transparent bg-orange-50 text-orange-700 opacity-60 hover:border-orange-300'
-                  }`}
+                    }`}
                 >
                   <span className="material-symbols-outlined mb-1">build</span>
                   <span className="text-xs font-bold">Maintenance</span>
                 </button>
-                <button 
+                <button
                   onClick={() => handleStatusChange('blocked')}
-                  className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${
-                    roomData.status === 'blocked' 
-                      ? 'border-blue-600 bg-red-50 text-red-700' 
+                  className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${roomData.status === 'blocked'
+                      ? 'border-blue-600 bg-red-50 text-red-700'
                       : 'border-transparent bg-red-50 text-red-700 opacity-60 hover:border-red-300'
-                  }`}
+                    }`}
                 >
                   <span className="material-symbols-outlined mb-1">block</span>
                   <span className="text-xs font-bold">Blocked</span>
@@ -298,8 +378,8 @@ const RoomManagement = () => {
               <div className="grid grid-cols-3 gap-3">
                 {images.map((image) => (
                   <div key={image.id} className="relative aspect-square rounded-lg overflow-hidden group">
-                    <div 
-                      className="absolute inset-0 bg-cover bg-center" 
+                    <div
+                      className="absolute inset-0 bg-cover bg-center"
                       style={{ backgroundImage: `url("${image.url}")` }}
                     ></div>
                     {image.primary && (
@@ -307,7 +387,7 @@ const RoomManagement = () => {
                         Primary
                       </span>
                     )}
-                    <button 
+                    <button
                       onClick={() => handleRemoveImage(image.id)}
                       className="absolute top-1 right-1 bg-white/80 hover:bg-white text-red-600 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                     >
@@ -323,8 +403,8 @@ const RoomManagement = () => {
               <h2 className="text-lg font-bold mb-4">Amenities</h2>
               <div className="grid grid-cols-2 gap-y-4 gap-x-2">
                 <label className="flex items-center gap-3 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={amenities.wifi}
                     onChange={() => handleAmenityChange('wifi')}
                     className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
@@ -335,8 +415,8 @@ const RoomManagement = () => {
                   </div>
                 </label>
                 <label className="flex items-center gap-3 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={amenities.ac}
                     onChange={() => handleAmenityChange('ac')}
                     className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
@@ -347,8 +427,8 @@ const RoomManagement = () => {
                   </div>
                 </label>
                 <label className="flex items-center gap-3 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={amenities.tv}
                     onChange={() => handleAmenityChange('tv')}
                     className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
@@ -359,8 +439,8 @@ const RoomManagement = () => {
                   </div>
                 </label>
                 <label className="flex items-center gap-3 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={amenities.miniBar}
                     onChange={() => handleAmenityChange('miniBar')}
                     className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
@@ -371,8 +451,8 @@ const RoomManagement = () => {
                   </div>
                 </label>
                 <label className="flex items-center gap-3 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={amenities.coffeeMaker}
                     onChange={() => handleAmenityChange('coffeeMaker')}
                     className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
@@ -383,8 +463,8 @@ const RoomManagement = () => {
                   </div>
                 </label>
                 <label className="flex items-center gap-3 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     checked={amenities.safe}
                     onChange={() => handleAmenityChange('safe')}
                     className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
@@ -417,12 +497,12 @@ const RoomManagement = () => {
                     <span className="material-symbols-outlined text-lg">link</span>
                   </button>
                 </div>
-                <textarea 
+                <textarea
                   name="description"
                   value={roomData.description}
                   onChange={handleInputChange}
-                  className="w-full p-4 border-none focus:ring-0 text-base resize-none" 
-                  placeholder="Describe the room features, view, and unique selling points..." 
+                  className="w-full p-4 border-none focus:ring-0 text-base resize-none"
+                  placeholder="Describe the room features, view, and unique selling points..."
                   rows="6"
                 ></textarea>
               </div>
@@ -434,13 +514,13 @@ const RoomManagement = () => {
       {/* Sticky Footer Actions */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md border-t border-gray-200 py-4 px-6 z-50">
         <div className="max-w-7xl mx-auto flex items-center justify-end gap-4">
-          <button 
+          <button
             onClick={handleCancel}
             className="px-6 py-2.5 rounded-lg font-bold text-gray-500 hover:text-gray-900 transition-colors"
           >
             Cancel
           </button>
-          <button 
+          <button
             onClick={handleSave}
             className="bg-blue-600 text-white px-10 py-2.5 rounded-lg font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-colors flex items-center gap-2"
           >
