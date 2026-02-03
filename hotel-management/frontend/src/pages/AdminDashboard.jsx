@@ -1,15 +1,41 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
+
+// Fix for default marker icon issues in React-Leaflet
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [hotel, setHotel] = useState(null);
   const [description, setDescription] = useState('');
+  const [latitude, setLatitude] = useState(27.7172); // Default to Kathmandu
+  const [longitude, setLongitude] = useState(85.3240);
   const [images, setImages] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Component to handle map clicks
+  const LocationMarker = () => {
+    useMapEvents({
+      click(e) {
+        setLatitude(e.latlng.lat);
+        setLongitude(e.latlng.lng);
+      },
+    });
+
+    return latitude && longitude ? (
+      <Marker position={[latitude, longitude]} />
+    ) : null;
+  };
 
   useEffect(() => {
     // check authentication and role
@@ -73,6 +99,8 @@ const AdminDashboard = () => {
       console.log('Hotel response:', response.data);
       setHotel(response.data.hotel);
       setDescription(response.data.hotel.description || '');
+      if (response.data.hotel.latitude) setLatitude(parseFloat(response.data.hotel.latitude));
+      if (response.data.hotel.longitude) setLongitude(parseFloat(response.data.hotel.longitude));
 
       // Parse images from JSON string
       let hotelImages = [];
@@ -295,8 +323,9 @@ const AdminDashboard = () => {
         updatedHotel.image = JSON.stringify(allImages);
       }
 
-      // Update description
-      updatedHotel.description = description;
+      // Update coordinates
+      updatedHotel.latitude = latitude;
+      updatedHotel.longitude = longitude;
 
       // Save everything in one API call
       console.log('Saving hotel with', updatedHotel.image ? JSON.parse(updatedHotel.image).length : 0, 'images and description:', updatedHotel.description);
@@ -608,7 +637,7 @@ const AdminDashboard = () => {
                       )}
                     </div>
 
-                    {/* Right side: Description & Details */}
+                    {/* Right side: Description & Map */}
                     <div className="space-y-6">
                       <div className="space-y-4">
                         <label className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
@@ -619,7 +648,7 @@ const AdminDashboard = () => {
                           <textarea
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
-                            className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl focus:ring-4 focus:ring-primary/10 focus:border-primary focus:bg-white transition-all text-slate-700 leading-relaxed text-sm min-h-[220px] resize-none"
+                            className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-3xl focus:ring-4 focus:ring-primary/10 focus:border-primary focus:bg-white transition-all text-slate-700 leading-relaxed text-sm min-h-[150px] resize-none"
                             placeholder="Tell guests about your hotel, the location, and what makes it special..."
                           />
                           <div className="absolute bottom-4 right-4 text-[10px] font-bold text-slate-400 group-focus-within:text-primary">
@@ -628,20 +657,37 @@ const AdminDashboard = () => {
                         </div>
                       </div>
 
-                      {/* Property Stats Mockup */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="p-4 rounded-3xl bg-slate-50 border border-slate-100 flex flex-col items-center justify-center">
-                          <span className="text-xs font-bold text-slate-500 uppercase">Rating</span>
-                          <div className="flex items-center gap-1 text-amber-500 mt-1">
-                            <span className="material-symbols-outlined text-sm FILL">star</span>
-                            <span className="font-black text-slate-900">{hotel?.rating || '0.0'}</span>
+                      {/* Map Section */}
+                      <div className="space-y-4 pt-4 border-t border-slate-100">
+                        <label className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-1.5 h-4 bg-primary rounded-full"></span>
+                            Set Property Location
                           </div>
+                          <span className="text-[10px] text-slate-400 font-bold">CLICK ON MAP TO PIN</span>
+                        </label>
+                        <div className="rounded-3xl overflow-hidden border-2 border-slate-100 shadow-inner h-[250px] relative z-0">
+                          <MapContainer
+                            center={[latitude, longitude]}
+                            zoom={13}
+                            style={{ height: '100%', width: '100%' }}
+                            scrollWheelZoom={false}
+                          >
+                            <TileLayer
+                              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                            />
+                            <LocationMarker />
+                          </MapContainer>
                         </div>
-                        <div className="p-4 rounded-3xl bg-slate-50 border border-slate-100 flex flex-col items-center justify-center">
-                          <span className="text-xs font-bold text-slate-500 uppercase">Status</span>
-                          <div className="flex items-center gap-1 text-green-600 mt-1">
-                            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                            <span className="font-black text-slate-900">Live</span>
+                        <div className="flex gap-4">
+                          <div className="flex-1 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                            <p className="text-[9px] font-black text-slate-400 uppercase leading-none mb-1">Latitude</p>
+                            <p className="text-sm font-bold text-slate-700">{latitude.toFixed(6)}</p>
+                          </div>
+                          <div className="flex-1 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                            <p className="text-[9px] font-black text-slate-400 uppercase leading-none mb-1">Longitude</p>
+                            <p className="text-sm font-bold text-slate-700">{longitude.toFixed(6)}</p>
                           </div>
                         </div>
                       </div>
@@ -662,35 +708,30 @@ const AdminDashboard = () => {
                 </div>
               )}
             </div>
+
             <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
               <div className="p-6 border-b border-slate-100 flex items-center gap-3">
                 <span className="material-symbols-outlined text-primary">meeting_room</span>
                 <h3 className="font-bold text-lg">Room Management</h3>
               </div>
               <div className="p-6 space-y-3">
-                <button className="w-full flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-primary hover:bg-primary/5 transition-all text-left group">
+                <Link to="/admin/rooms" className="w-full flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-primary hover:bg-primary/5 transition-all text-left group">
                   <div className="flex items-center gap-3">
                     <span className="material-symbols-outlined text-slate-400 group-hover:text-primary">add_circle</span>
                     <span className="font-medium">Add New Room</span>
                   </div>
                   <span className="material-symbols-outlined text-slate-300 group-hover:text-primary">chevron_right</span>
-                </button>
-                <button className="w-full flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-primary hover:bg-primary/5 transition-all text-left group">
+                </Link>
+                <Link to="/admin/rooms" className="w-full flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-primary hover:bg-primary/5 transition-all text-left group">
                   <div className="flex items-center gap-3">
                     <span className="material-symbols-outlined text-slate-400 group-hover:text-primary">edit_square</span>
                     <span className="font-medium">Manage Rooms</span>
                   </div>
                   <span className="material-symbols-outlined text-slate-300 group-hover:text-primary">chevron_right</span>
-                </button>
-                <button className="w-full flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-primary hover:bg-primary/5 transition-all text-left group">
-                  <div className="flex items-center gap-3">
-                    <span className="material-symbols-outlined text-slate-400 group-hover:text-primary">calendar_today</span>
-                    <span className="font-medium">Room Availability</span>
-                  </div>
-                  <span className="material-symbols-outlined text-slate-300 group-hover:text-primary">chevron_right</span>
-                </button>
+                </Link>
               </div>
             </div>
+
             <div className="bg-white rounded-2xl border-2 border-slate-200 shadow-sm overflow-hidden">
               <div className="p-6 border-b border-slate-100 flex items-center gap-3">
                 <span className="material-symbols-outlined text-green-600">book_online</span>
@@ -708,13 +749,6 @@ const AdminDashboard = () => {
                   <div className="flex items-center gap-3">
                     <span className="material-symbols-outlined text-slate-400 group-hover:text-green-600">view_list</span>
                     <span className="font-medium">Manage Bookings</span>
-                  </div>
-                  <span className="material-symbols-outlined text-slate-300 group-hover:text-green-600">chevron_right</span>
-                </button>
-                <button className="w-full flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-green-600 hover:bg-green-50 transition-all text-left group">
-                  <div className="flex items-center gap-3">
-                    <span className="material-symbols-outlined text-slate-400 group-hover:text-green-600">login</span>
-                    <span className="font-medium">Check-In / Check-Out</span>
                   </div>
                   <span className="material-symbols-outlined text-slate-300 group-hover:text-green-600">chevron_right</span>
                 </button>
