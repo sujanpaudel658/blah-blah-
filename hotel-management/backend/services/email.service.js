@@ -1,11 +1,10 @@
 const nodemailer = require('nodemailer');
 
-// Configure email transporter
 const transporter = nodemailer.createTransport({
-  service: process.env.EMAIL_SERVICE || 'gmail',
+  service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD
+    pass: process.env.EMAIL_PASS
   }
 });
 
@@ -13,7 +12,7 @@ const transporter = nodemailer.createTransport({
 exports.sendVerificationEmail = async (email, verificationToken, userName) => {
   try {
     const verificationLink = `http://localhost:3000/verify-email?token=${verificationToken}`;
-    
+
     const mailOptions = {
       from: process.env.EMAIL_FROM,
       to: email,
@@ -86,7 +85,7 @@ exports.sendWelcomeEmail = async (email, userName) => {
 exports.sendPasswordResetEmail = async (email, resetToken, userName) => {
   try {
     const resetLink = `http://localhost:3000/reset-password?token=${resetToken}`;
-    
+
     const mailOptions = {
       from: process.env.EMAIL_FROM,
       to: email,
@@ -124,7 +123,7 @@ exports.sendPasswordResetEmail = async (email, resetToken, userName) => {
 exports.sendSetPasswordEmail = async (email, resetToken, userName) => {
   try {
     const setPasswordLink = `http://localhost:3000/set-password?token=${resetToken}`;
-    
+
     const mailOptions = {
       from: process.env.EMAIL_FROM,
       to: email,
@@ -155,6 +154,77 @@ exports.sendSetPasswordEmail = async (email, resetToken, userName) => {
   } catch (error) {
     console.error('Error sending set password email:', error);
     throw error;
+  }
+};
+
+// Send booking confirmation to guest
+exports.sendBookingConfirmation = async (email, details) => {
+  try {
+    const mailOptions = {
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: `Booking Confirmed! - #${details.bookingReference}`,
+      html: `
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px; border-radius: 24px;">
+          <div style="background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);">
+            <div style="text-align: center; margin-bottom: 30px;">
+              <div style="background-color: #ecfdf5; color: #059669; width: 64px; height: 64px; line-height: 64px; border-radius: 50%; display: inline-block; font-size: 32px;">✓</div>
+              <h2 style="color: #1e293b; margin-top: 20px; font-size: 24px; font-weight: 800;">Booking Confirmed!</h2>
+            </div>
+            
+            <p style="color: #64748b; font-size: 16px; line-height: 1.6;">Hi ${details.userName}, your payment was successful and your stay at <strong>${details.hotelName}</strong> is officially booked!</p>
+            
+            <div style="background-color: #f1f5f9; padding: 25px; border-radius: 16px; margin: 30px 0;">
+              <h3 style="color: #1e293b; font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 15px;">Reservation Details</h3>
+              <table style="width: 100%; font-size: 14px; color: #475569;">
+                <tr><td style="padding: 5px 0;"><strong>Reference:</strong></td><td style="text-align: right;">${details.bookingReference}</td></tr>
+                <tr><td style="padding: 5px 0;"><strong>Room:</strong></td><td style="text-align: right;">${details.roomNumber}</td></tr>
+                <tr><td style="padding: 5px 0;"><strong>Check-in:</strong></td><td style="text-align: right;">${details.checkIn}</td></tr>
+                <tr><td style="padding: 5px 0;"><strong>Check-out:</strong></td><td style="text-align: right;">${details.checkOut}</td></tr>
+                <tr><td style="padding: 5px 0; border-top: 1px solid #e2e8f0; margin-top: 10px;"><strong>Amount Paid:</strong></td><td style="text-align: right; border-top: 1px solid #e2e8f0; color: #607AFB; font-weight: 800;">Rs. ${details.amount}</td></tr>
+              </table>
+            </div>
+
+            <p style="color: #64748b; font-size: 14px; text-align: center;">We look forward to seeing you. Safe travels!</p>
+          </div>
+          <p style="text-align: center; color: #94a3b8; font-size: 11px; margin-top: 20px;">Nepal Stays Hotel Management System</p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+  } catch (error) {
+    console.error('Error sending confirmation email:', error);
+  }
+};
+
+// Send notification to hotel admin
+exports.sendAdminBookingNotification = async (hotelEmail, details) => {
+  try {
+    const mailOptions = {
+      from: process.env.EMAIL_FROM,
+      to: hotelEmail,
+      subject: `New Paid Booking! - #${details.bookingReference}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; background-color: #10182f; color: white; padding: 40px; border-radius: 16px;">
+          <h2 style="color: #607AFB;">New Reservation Alert</h2>
+          <p>Hello Admin, a new payment has been received for <strong>${details.hotelName}</strong>.</p>
+          
+          <div style="background-color: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px;">
+            <p><strong>Guest Name:</strong> ${details.userName}</p>
+            <p><strong>Room Number:</strong> ${details.roomNumber}</p>
+            <p><strong>Dates:</strong> ${details.checkIn} to ${details.checkOut}</p>
+            <p><strong>Total Paid:</strong> Rs. ${details.amount}</p>
+          </div>
+          
+          <p style="margin-top: 20px;">Please prepare the room for arrival.</p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+  } catch (error) {
+    console.error('Error sending admin notification:', error);
   }
 };
 

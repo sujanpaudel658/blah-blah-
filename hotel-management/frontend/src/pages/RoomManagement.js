@@ -1,14 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import axios from 'axios';
+import AdminLayout from '../components/admin/AdminLayout';
 
 const RoomManagement = () => {
   const navigate = useNavigate();
   const { roomId } = useParams();
-  const [isEditing, setIsEditing] = useState(false);
-  const [loading, setLoading] = useState(false);
-
+  const [rooms, setRooms] = useState([]);
   const [roomTypes, setRoomTypes] = useState([]);
   const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState('grid');
+  const [filter, setFilter] = useState('all');
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const [formData, setFormData] = useState({
+    id: '',
+    room_number: '',
+    room_type_id: '',
+    floor: '',
+    status: 'available',
+    notes: ''
+  });
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -19,517 +35,348 @@ const RoomManagement = () => {
     }
     const parsedUser = JSON.parse(userData);
     setUser(parsedUser);
+    fetchData(parsedUser.hotel_id);
+  }, [navigate]);
 
-    // Fetch room types
-    const fetchRoomTypes = async () => {
-      try {
-        const response = await fetch(`http://localhost:5000/api/rooms/types?hotelId=${parsedUser.hotel_id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+  useEffect(() => {
+    if (roomId && (rooms || []).length > 0) {
+      const roomToEdit = rooms.find(r => r.id === parseInt(roomId));
+      if (roomToEdit) {
+        setFormData({
+          id: roomToEdit.id,
+          room_number: roomToEdit.room_number,
+          room_type_id: roomToEdit.room_type_id,
+          floor: roomToEdit.floor,
+          status: roomToEdit.status,
+          notes: roomToEdit.notes || ''
         });
-        const data = await response.json();
-        if (data.success) setRoomTypes(data.roomTypes);
-      } catch (error) {
-        console.error('Error fetching room types:', error);
+        setIsEditing(true);
+        setShowFormModal(true);
       }
-    };
-
-    fetchRoomTypes();
-
-    if (roomId) {
-      setIsEditing(true);
-      const fetchRoom = async () => {
-        try {
-          const response = await fetch(`http://localhost:5000/api/rooms?hotelId=${parsedUser.hotel_id}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          const data = await response.json();
-          if (data.success) {
-            const room = data.rooms.find(r => r.id === parseInt(roomId));
-            if (room) {
-              setRoomData({
-                name: room.room_number,
-                type: room.room_type_id,
-                floor: room.floor,
-                maxOccupancy: room.max_occupancy,
-                basePrice: room.base_price,
-                extraBedPrice: '0',
-                taxInclusive: true,
-                status: room.status,
-                description: room.notes
-              });
-              setAmenities(room.amenities || {});
-            }
-          }
-        } catch (error) {
-          console.error('Error fetching room:', error);
-        }
-      };
-      fetchRoom();
-    } else {
-      setIsEditing(false);
     }
-  }, [roomId, navigate]);
+  }, [roomId, rooms]);
 
-  // Form state
-  const [roomData, setRoomData] = useState({
-    name: '',
-    type: '',
-    floor: '',
-    maxOccupancy: '',
-    basePrice: '',
-    extraBedPrice: '',
-    taxInclusive: true,
-    status: 'available',
-    description: ''
-  });
-
-  const [amenities, setAmenities] = useState({
-    wifi: false,
-    ac: false,
-    tv: false,
-    miniBar: false,
-    coffeeMaker: false,
-    safe: false
-  });
-
-  const [images, setImages] = useState([]);
-
-  const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setRoomData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-  };
-
-  const handleAmenityChange = (amenity) => {
-    setAmenities(prev => ({
-      ...prev,
-      [amenity]: !prev[amenity]
-    }));
-  };
-
-  const handleStatusChange = (status) => {
-    setRoomData(prev => ({ ...prev, status }));
-  };
-
-  const handleRemoveImage = (id) => {
-    setImages(prev => prev.filter(img => img.id !== id));
-  };
-
-  const handleSave = async () => {
+  const fetchData = async (hotelId) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const method = isEditing ? 'PUT' : 'POST';
-      const url = isEditing ? `http://localhost:5000/api/rooms/${roomId}` : 'http://localhost:5000/api/rooms';
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          hotel_id: user.hotel_id,
-          room_type_id: roomData.type,
-          room_number: roomData.name,
-          floor: roomData.floor,
-          status: roomData.status,
-          notes: roomData.description,
-          amenities: amenities // Send current amenities
+      const [roomsRes, typesRes] = await Promise.all([
+        axios.get(`http://localhost:5000/api/rooms?hotelId=${hotelId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get(`http://localhost:5000/api/rooms/types?hotelId=${hotelId}`, {
+          headers: { Authorization: `Bearer ${token}` }
         })
-      });
+      ]);
 
-      const data = await response.json();
-      if (data.success) {
-        alert(isEditing ? 'Room updated!' : 'Room created!');
-        navigate('/admin/dashboard');
-      } else {
-        alert('Error: ' + data.message);
-      }
+      if (roomsRes.data.success) setRooms(roomsRes.data.rooms || []);
+      if (typesRes.data.success) setRoomTypes(typesRes.data.roomTypes || []);
     } catch (error) {
-      console.error('Save error:', error);
-      alert('Failed to save room');
+      console.error('Error fetching data:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCancel = () => {
-    navigate(-1);
+  const handleFormChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handleSave = async (e) => {
+    e.preventDefault();
+    try {
+      const token = localStorage.getItem('token');
+      const method = isEditing ? 'put' : 'post';
+      const url = isEditing
+        ? `http://localhost:5000/api/rooms/${formData.id}`
+        : 'http://localhost:5000/api/rooms';
+
+      const res = await axios[method](url, {
+        ...formData,
+        hotel_id: user?.hotel_id
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.data.success) {
+        setSuccessMessage(isEditing ? 'Unit updated successfully.' : 'Unit initialized.');
+        setShowFormModal(false);
+        fetchData(user?.hotel_id);
+        if (isEditing) {
+          navigate('/admin/rooms');
+        }
+        setTimeout(() => setSuccessMessage(''), 3000);
+      }
+    } catch (error) {
+      console.error('Save error:', error);
+      alert('Transaction failure: Room record not committed.');
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('IRREVERSIBLE ACTION: Confirm deletion of this room record?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.delete(`http://localhost:5000/api/rooms/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.success) {
+        setSuccessMessage('Record purged.');
+        fetchData(user?.hotel_id);
+        setTimeout(() => setSuccessMessage(''), 3000);
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
+  };
+
+  const filteredRooms = (rooms || []).filter(room => {
+    const name = (room?.room_number || '').toLowerCase();
+    const type = (room?.type_name || '').toLowerCase();
+    const search = (searchQuery || '').toLowerCase();
+    const matchesSearch = name.includes(search) || type.includes(search);
+
+    let matchesFilter = true;
+    if (filter === 'vacant') matchesFilter = room?.is_occupied === 0 && room?.status === 'available';
+    if (filter === 'occupied') matchesFilter = room?.is_occupied > 0;
+    if (filter === 'maintenance') matchesFilter = room?.status === 'maintenance';
+
+    return matchesSearch && matchesFilter;
+  });
+
+  const groupedByFloor = filteredRooms.reduce((acc, room) => {
+    const floor = room?.floor || '0';
+    if (!acc[floor]) acc[floor] = [];
+    acc[floor].push(room);
+    return acc;
+  }, {});
+
+  Object.keys(groupedByFloor).forEach(floor => {
+    groupedByFloor[floor].sort((a, b) =>
+      (a?.room_number || '').localeCompare(b?.room_number || '', undefined, { numeric: true, sensitivity: 'base' })
+    );
+  });
+
+  const floors = Object.keys(groupedByFloor).sort((a, b) => parseInt(a) - parseInt(b));
+
+  const stats = {
+    total: (rooms || []).length,
+    vacant: (rooms || []).filter(r => r?.is_occupied === 0 && r?.status === 'available').length,
+    occupied: (rooms || []).filter(r => r?.is_occupied > 0).length,
+    maintenance: (rooms || []).filter(r => r?.status === 'maintenance').length
+  };
+
+  if (loading && (rooms || []).length === 0) return <div className="flex items-center justify-center min-h-screen bg-[#F5F3EF] text-[#1B2B41] font-bold">LOADING ROOM INVENTORY...</div>;
+
   return (
-    <div className="bg-gray-100 min-h-screen font-sans text-gray-900">
-      {/* Top Navigation */}
-      <header className="sticky top-0 z-50 bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            <div className="flex items-center gap-2">
-              <div className="text-blue-600">
-                <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                  <path clipRule="evenodd" d="M24 4H6V17.3333V30.6667H24V44H42V30.6667V17.3333H24V44Z" fillRule="evenodd"></path>
-                </svg>
-              </div>
-              <span className="text-xl font-bold tracking-tight">HotelAdmin</span>
+    <AdminLayout
+      user={user}
+      title="ROOM INVENTORY"
+      subtitle="REAL-TIME PROPERTY MAP"
+      onLogout={handleLogout}
+    >
+      <div className="flex flex-col lg:flex-row gap-8 pb-12">
+        {/* Left Stats Sidebar */}
+        <aside className="w-full lg:w-64 space-y-6">
+          <div className="admin-card p-5 bg-white">
+            <span className="admin-label mb-3">Filter Catalog</span>
+            <div className="space-y-1">
+              <button onClick={() => setFilter('all')} className={`w-full text-left px-3 py-2 text-xs font-bold uppercase transition-colors rounded-sm flex justify-between ${filter === 'all' ? 'bg-[#1B2B41] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'}`}>
+                <span>All Units</span> <span>{stats.total}</span>
+              </button>
+              <button onClick={() => setFilter('vacant')} className={`w-full text-left px-3 py-2 text-xs font-bold uppercase transition-colors rounded-sm flex justify-between ${filter === 'vacant' ? 'bg-[#108548] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'}`}>
+                <span>Vacant</span> <span>{stats.vacant}</span>
+              </button>
+              <button onClick={() => setFilter('occupied')} className={`w-full text-left px-3 py-2 text-xs font-bold uppercase transition-colors rounded-sm flex justify-between ${filter === 'occupied' ? 'bg-[#B91C1C] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'}`}>
+                <span>Occupied</span> <span>{stats.occupied}</span>
+              </button>
+              <button onClick={() => setFilter('maintenance')} className={`w-full text-left px-3 py-2 text-xs font-bold uppercase transition-colors rounded-sm flex justify-between ${filter === 'maintenance' ? 'bg-[#A36B00] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'}`}>
+                <span>In Repair</span> <span>{stats.maintenance}</span>
+              </button>
             </div>
-            <nav className="hidden md:flex items-center gap-6">
-              <a className="text-sm font-semibold opacity-60 hover:opacity-100 transition-opacity cursor-pointer">Dashboard</a>
-              <a className="text-sm font-semibold text-blue-600 cursor-pointer">Rooms</a>
-              <a className="text-sm font-semibold opacity-60 hover:opacity-100 transition-opacity cursor-pointer">Bookings</a>
-              <a className="text-sm font-semibold opacity-60 hover:opacity-100 transition-opacity cursor-pointer">Guests</a>
-            </nav>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="relative hidden sm:block">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">search</span>
+
+          <div className="admin-card p-5 bg-[#1B2B41] text-white">
+            <span className="text-[10px] font-bold text-[#A0AEC0] uppercase block mb-2">Live Availability</span>
+            <div className="text-3xl font-bold mb-3">{stats.total > 0 ? Math.round((stats.vacant / stats.total) * 100) : 0}%</div>
+            <div className="h-1 bg-[#2D4361] rounded-full overflow-hidden">
+              <div className="h-full bg-[#108548]" style={{ width: `${(stats.vacant / (stats.total || 1)) * 100}%` }}></div>
+            </div>
+            <p className="text-[9px] text-[#A0AEC0] font-medium mt-3 italic text-center">Ready for allocation</p>
+          </div>
+        </aside>
+
+        {/* Main Interface */}
+        <div className="flex-1 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="relative flex-1">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#94A3B8]">search</span>
               <input
-                className="bg-gray-100 border-none rounded-lg pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-blue-600 w-64"
-                placeholder="Search rooms..."
                 type="text"
+                placeholder="Locate unit or category..."
+                className="admin-input pl-10 h-10 italic"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold border-2 border-blue-600">
-              A
+            <div className="flex gap-2">
+              <div className="flex bg-[#E2E2E2] p-1 rounded-sm">
+                <button onClick={() => setViewMode('grid')} className={`px-3 py-1 text-[10px] font-bold uppercase transition-colors ${viewMode === 'grid' ? 'bg-white text-[#1B2B41]' : 'text-[#94A3B8]'}`}>Grid</button>
+                <button onClick={() => setViewMode('list')} className={`px-3 py-1 text-[10px] font-bold uppercase transition-colors ${viewMode === 'list' ? 'bg-white text-[#1B2B41]' : 'text-[#94A3B8]'}`}>List</button>
+              </div>
+              <button
+                onClick={() => {
+                  setIsEditing(false);
+                  setFormData({ id: '', room_number: '', room_type_id: '', floor: '', status: 'available', notes: '' });
+                  setShowFormModal(true);
+                }}
+                className="admin-button admin-button-primary h-10 px-6 uppercase tracking-widest text-[11px]"
+              >
+                Initialize Unit
+              </button>
             </div>
+          </div>
+
+          {successMessage && (
+            <div className="bg-[#E7F3ED] border border-[#108548] p-3 text-[#108548] font-bold text-[11px] uppercase tracking-widest fade-in">
+              {successMessage}
+            </div>
+          )}
+
+          {viewMode === 'grid' ? (
+            <div className="space-y-10">
+              {floors.map(floor => (
+                <div key={floor} className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <h3 className="text-sm font-bold text-[#1B2B41] uppercase tracking-wider">FLOOR {floor}</h3>
+                    <div className="h-px flex-1 bg-[#E2E2E2]"></div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-4">
+                    {groupedByFloor[floor].map(room => {
+                      const isOccupied = room?.is_occupied > 0;
+                      const status = room?.status;
+                      let color = '#108548';
+                      if (isOccupied) color = '#B91C1C';
+                      else if (status === 'maintenance') color = '#A36B00';
+
+                      return (
+                        <div
+                          key={room.id}
+                          onClick={() => { setFormData(room); setIsEditing(true); setShowFormModal(true); }}
+                          className="admin-card bg-white p-4 cursor-pointer hover:border-[#1B2B41] transition-colors relative"
+                          style={{ borderLeft: `4px solid ${color}` }}
+                        >
+                          <div className="text-xl font-bold text-[#1B2B41] mb-1">{room.room_number}</div>
+                          <div className="text-[9px] font-bold text-[#94A3B8] uppercase line-clamp-1">{room.status}</div>
+                          <div className="text-[9px] font-bold text-[#64748B] uppercase mt-0.5 tracking-tighter truncate">{room.type_name}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="admin-card overflow-hidden bg-white">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Unit ID</th>
+                    <th>Floor</th>
+                    <th>Property Category</th>
+                    <th>Sync Status</th>
+                    <th className="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRooms.map(room => (
+                    <tr key={room.id}>
+                      <td className="font-bold text-[#1B2B41]">{room.room_number}</td>
+                      <td className="text-[#64748B]">{room.floor || '0'}</td>
+                      <td className="text-[#64748B] font-medium">{room.type_name}</td>
+                      <td>
+                        <span className={`status-badge ${room.is_occupied > 0 ? 'bg-red-50 text-[#B91C1C]' : (room.status === 'maintenance' ? 'bg-amber-50 text-[#A36B00]' : 'bg-emerald-50 text-[#108548]')}`}>
+                          {room.is_occupied > 0 ? 'Occupied' : room.status}
+                        </span>
+                      </td>
+                      <td className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => { setFormData(room); setIsEditing(true); setShowFormModal(true); }} className="admin-button admin-button-secondary h-8 w-8 !p-0"><span className="material-symbols-outlined text-sm">edit</span></button>
+                          <button onClick={() => handleDelete(room.id)} className="admin-button admin-button-secondary h-8 w-8 !p-0 border-red-100 text-red-600 hover:bg-red-50"><span className="material-symbols-outlined text-sm">delete</span></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Side Form Modal */}
+      {showFormModal && (
+        <div className="fixed inset-0 z-[100] bg-[#111B2B]/80 flex items-center justify-end">
+          <div className="bg-white h-full w-full max-w-lg shadow-xl border-l border-[#E2E2E2] fade-in flex flex-col">
+            <header className="bg-[#1B2B41] px-8 py-6 flex items-center justify-between text-white shrink-0">
+              <div>
+                <h3 className="text-lg font-bold uppercase tracking-widest">{isEditing ? 'Sync Unit Config' : 'Unit Initialization'}</h3>
+                <p className="text-[10px] text-[#A0AEC0] mt-0.5 font-bold uppercase tracking-widest">Inventory Management Terminal</p>
+              </div>
+              <button onClick={() => setShowFormModal(false)} className="w-8 h-8 flex items-center justify-center hover:bg-white/10 transition-colors">
+                <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+            </header>
+
+            <form onSubmit={handleSave} className="p-10 space-y-6 flex-1 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="form-group">
+                  <label className="admin-label">Unit Number</label>
+                  <input required name="room_number" value={formData.room_number} onChange={handleFormChange} className="admin-input font-bold" />
+                </div>
+                <div className="form-group">
+                  <label className="admin-label">Floor Mapping</label>
+                  <input required type="number" name="floor" value={formData.floor} onChange={handleFormChange} className="admin-input" />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="admin-label">Logical Category (Property Type)</label>
+                <select required name="room_type_id" value={formData.room_type_id} onChange={handleFormChange} className="admin-input font-semibold text-[#1B2B41]">
+                  <option value="">-- SELECT CLASSIFICATION --</option>
+                  {roomTypes.map(rt => (<option key={rt.id} value={rt.id}>{rt.name.toUpperCase()}</option>))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="admin-label">Operational Status</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => handleFormChange({ target: { name: 'status', value: 'available' } })} className={`px-4 py-3 text-[10px] font-bold uppercase tracking-widest border transition-all ${formData.status === 'available' ? 'bg-[#108548] text-white border-[#108548]' : 'bg-white text-[#94A3B8] border-[#E2E2E2]'}`}>Vacant / Online</button>
+                  <button type="button" onClick={() => handleFormChange({ target: { name: 'status', value: 'maintenance' } })} className={`px-4 py-3 text-[10px] font-bold uppercase tracking-widest border transition-all ${formData.status === 'maintenance' ? 'bg-[#A36B00] text-white border-[#A36B00]' : 'bg-white text-[#94A3B8] border-[#E2E2E2]'}`}>In Repair / Offline</button>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="admin-label">Internal Activity Log</label>
+                <textarea name="notes" value={formData.notes} onChange={handleFormChange} className="admin-input h-32 resize-none leading-relaxed text-[#64748B]" placeholder="Document maintenance history, unit specific features, or operational anomalies..." />
+              </div>
+            </form>
+
+            <footer className="p-8 border-t border-[#F1F1F1] bg-[#F9FAFB] flex gap-3 shrink-0">
+              <button type="button" onClick={() => setShowFormModal(false)} className="flex-1 admin-button admin-button-secondary h-12 uppercase tracking-widest">Abort</button>
+              <button onClick={handleSave} className="flex-[2] admin-button admin-button-primary h-12 uppercase tracking-widest">Commit Transaction</button>
+            </footer>
           </div>
         </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-6 py-8 pb-32">
-        {/* Breadcrumbs & Heading */}
-        <div className="mb-8">
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <a className="hover:text-blue-600 transition-colors cursor-pointer">Management</a>
-            <span className="material-symbols-outlined text-xs">chevron_right</span>
-            <a className="hover:text-blue-600 transition-colors cursor-pointer">Rooms</a>
-            <span className="material-symbols-outlined text-xs">chevron_right</span>
-            <span className="text-gray-900 font-medium">{isEditing ? `Edit ${roomData.name}` : 'Add New Room'}</span>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <h1 className="text-3xl font-extrabold tracking-tight">{isEditing ? 'Edit Room' : 'Add New Room'}</h1>
-            <button className="bg-blue-600/10 text-blue-600 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-blue-600/20 transition-colors">
-              <span className="material-symbols-outlined text-sm">add</span> Add New Room
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Column: Primary Details (7/12) */}
-          <div className="lg:col-span-7 flex flex-col gap-8">
-            {/* Room Details Card */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <div className="flex items-center gap-2 mb-6">
-                <span className="material-symbols-outlined text-blue-600">info</span>
-                <h2 className="text-lg font-bold">Room Details</h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold opacity-70">Room Name</label>
-                  <input
-                    name="name"
-                    value={roomData.name}
-                    onChange={handleInputChange}
-                    className="w-full border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600"
-                    type="text"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold opacity-70">Room Type</label>
-                  <select
-                    name="type"
-                    value={roomData.type}
-                    onChange={handleInputChange}
-                    className="w-full border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600"
-                  >
-                    <option value="">Select Type</option>
-                    {roomTypes.map(rt => (
-                      <option key={rt.id} value={rt.id}>{rt.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold opacity-70">Floor Number</label>
-                  <input
-                    name="floor"
-                    value={roomData.floor}
-                    onChange={handleInputChange}
-                    className="w-full border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600"
-                    type="number"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold opacity-70">Max Occupancy</label>
-                  <input
-                    name="maxOccupancy"
-                    value={roomData.maxOccupancy}
-                    onChange={handleInputChange}
-                    className="w-full border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600"
-                    type="number"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Pricing Card */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <div className="flex items-center gap-2 mb-6">
-                <span className="material-symbols-outlined text-blue-600">payments</span>
-                <h2 className="text-lg font-bold">Pricing Configuration</h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold opacity-70">Base Price per Night (Rs.)</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-400">Rs.</span>
-                    <input
-                      name="basePrice"
-                      value={roomData.basePrice}
-                      onChange={handleInputChange}
-                      className="w-full pl-12 border-gray-200 rounded-lg p-3 text-base font-bold focus:border-blue-600 focus:ring-blue-600"
-                      type="text"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold opacity-70">Extra Bed Price (Rs.)</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-400">Rs.</span>
-                    <input
-                      name="extraBedPrice"
-                      value={roomData.extraBedPrice}
-                      onChange={handleInputChange}
-                      className="w-full pl-12 border-gray-200 rounded-lg p-3 text-base focus:border-blue-600 focus:ring-blue-600"
-                      type="text"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="mt-6 flex items-center justify-between p-4 bg-gray-100 rounded-lg">
-                <div>
-                  <p className="font-bold">Tax Inclusive Pricing</p>
-                  <p className="text-xs text-gray-500">Toggle if the displayed price already includes GST/Service Tax</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="taxInclusive"
-                    checked={roomData.taxInclusive}
-                    onChange={handleInputChange}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column: Status & Media (5/12) */}
-          <div className="lg:col-span-5 flex flex-col gap-8">
-            {/* Room Status Card */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <h2 className="text-lg font-bold mb-4">Room Status</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <button
-                  onClick={() => handleStatusChange('available')}
-                  className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${roomData.status === 'available'
-                      ? 'border-blue-600 bg-green-50 text-green-700'
-                      : 'border-transparent bg-green-50 text-green-700 opacity-60 hover:border-green-300'
-                    }`}
-                >
-                  <span className="material-symbols-outlined mb-1">check_circle</span>
-                  <span className="text-xs font-bold">Available</span>
-                </button>
-                <button
-                  onClick={() => handleStatusChange('maintenance')}
-                  className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${roomData.status === 'maintenance'
-                      ? 'border-blue-600 bg-orange-50 text-orange-700'
-                      : 'border-transparent bg-orange-50 text-orange-700 opacity-60 hover:border-orange-300'
-                    }`}
-                >
-                  <span className="material-symbols-outlined mb-1">build</span>
-                  <span className="text-xs font-bold">Maintenance</span>
-                </button>
-                <button
-                  onClick={() => handleStatusChange('blocked')}
-                  className={`flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all ${roomData.status === 'blocked'
-                      ? 'border-blue-600 bg-red-50 text-red-700'
-                      : 'border-transparent bg-red-50 text-red-700 opacity-60 hover:border-red-300'
-                    }`}
-                >
-                  <span className="material-symbols-outlined mb-1">block</span>
-                  <span className="text-xs font-bold">Blocked</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Room Images Card */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold">Room Images</h2>
-                <span className="text-xs text-blue-600 font-bold">{images.length}/10 uploaded</span>
-              </div>
-              <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 flex flex-col items-center justify-center mb-6 hover:bg-gray-50 transition-colors cursor-pointer">
-                <span className="material-symbols-outlined text-4xl text-gray-400 mb-2">cloud_upload</span>
-                <p className="text-sm font-semibold">Drop images here</p>
-                <p className="text-xs text-gray-400">PNG, JPG up to 10MB</p>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {images.map((image) => (
-                  <div key={image.id} className="relative aspect-square rounded-lg overflow-hidden group">
-                    <div
-                      className="absolute inset-0 bg-cover bg-center"
-                      style={{ backgroundImage: `url("${image.url}")` }}
-                    ></div>
-                    {image.primary && (
-                      <span className="absolute top-1 left-1 bg-blue-600 text-[10px] text-white px-2 py-0.5 rounded font-bold uppercase tracking-wider">
-                        Primary
-                      </span>
-                    )}
-                    <button
-                      onClick={() => handleRemoveImage(image.id)}
-                      className="absolute top-1 right-1 bg-white/80 hover:bg-white text-red-600 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <span className="material-symbols-outlined text-sm">close</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Amenities Card */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <h2 className="text-lg font-bold mb-4">Amenities</h2>
-              <div className="grid grid-cols-2 gap-y-4 gap-x-2">
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={amenities.wifi}
-                    onChange={() => handleAmenityChange('wifi')}
-                    className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
-                  />
-                  <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100">
-                    <span className="material-symbols-outlined text-lg">wifi</span>
-                    <span className="text-sm font-medium">Free WiFi</span>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={amenities.ac}
-                    onChange={() => handleAmenityChange('ac')}
-                    className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
-                  />
-                  <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100">
-                    <span className="material-symbols-outlined text-lg">ac_unit</span>
-                    <span className="text-sm font-medium">Air Conditioning</span>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={amenities.tv}
-                    onChange={() => handleAmenityChange('tv')}
-                    className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
-                  />
-                  <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100">
-                    <span className="material-symbols-outlined text-lg">tv</span>
-                    <span className="text-sm font-medium">Smart TV</span>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={amenities.miniBar}
-                    onChange={() => handleAmenityChange('miniBar')}
-                    className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
-                  />
-                  <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100">
-                    <span className="material-symbols-outlined text-lg">kitchen</span>
-                    <span className="text-sm font-medium">Mini Bar</span>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={amenities.coffeeMaker}
-                    onChange={() => handleAmenityChange('coffeeMaker')}
-                    className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
-                  />
-                  <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100">
-                    <span className="material-symbols-outlined text-lg">coffee_maker</span>
-                    <span className="text-sm font-medium">Coffee Maker</span>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={amenities.safe}
-                    onChange={() => handleAmenityChange('safe')}
-                    className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
-                  />
-                  <div className="flex items-center gap-2 opacity-80 group-hover:opacity-100">
-                    <span className="material-symbols-outlined text-lg">safety_check</span>
-                    <span className="text-sm font-medium">Digital Safe</span>
-                  </div>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {/* Bottom: Description (Full Width) */}
-          <div className="lg:col-span-12">
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <h2 className="text-lg font-bold mb-4">Description</h2>
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <div className="bg-gray-50 border-b border-gray-200 p-2 flex gap-2">
-                  <button className="p-1 hover:bg-gray-200 rounded">
-                    <span className="material-symbols-outlined text-lg">format_bold</span>
-                  </button>
-                  <button className="p-1 hover:bg-gray-200 rounded">
-                    <span className="material-symbols-outlined text-lg">format_italic</span>
-                  </button>
-                  <button className="p-1 hover:bg-gray-200 rounded">
-                    <span className="material-symbols-outlined text-lg">format_list_bulleted</span>
-                  </button>
-                  <button className="p-1 hover:bg-gray-200 rounded">
-                    <span className="material-symbols-outlined text-lg">link</span>
-                  </button>
-                </div>
-                <textarea
-                  name="description"
-                  value={roomData.description}
-                  onChange={handleInputChange}
-                  className="w-full p-4 border-none focus:ring-0 text-base resize-none"
-                  placeholder="Describe the room features, view, and unique selling points..."
-                  rows="6"
-                ></textarea>
-              </div>
-            </div>
-          </div>
-        </div>
-      </main>
-
-      {/* Sticky Footer Actions */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md border-t border-gray-200 py-4 px-6 z-50">
-        <div className="max-w-7xl mx-auto flex items-center justify-end gap-4">
-          <button
-            onClick={handleCancel}
-            className="px-6 py-2.5 rounded-lg font-bold text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            className="bg-blue-600 text-white px-10 py-2.5 rounded-lg font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-colors flex items-center gap-2"
-          >
-            <span className="material-symbols-outlined text-sm">save</span>
-            {isEditing ? 'Update Room' : 'Save Room'}
-          </button>
-        </div>
-      </footer>
-    </div>
+      )}
+    </AdminLayout>
   );
 };
 

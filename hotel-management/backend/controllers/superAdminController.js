@@ -20,7 +20,7 @@ exports.getAllHotels = async (req, res) => {
 // Create new hotel with admin
 exports.createHotel = async (req, res) => {
   try {
-    const { name, address, city, country, phone, email, description, image, adminName, adminEmail, adminPassword } = req.body;
+    const { name, address, city, country, phone, email, description, image, latitude, longitude, adminName, adminEmail, adminPassword } = req.body;
 
     if (!name || !city || !country) {
       return res.status(400).json({ success: false, message: 'Hotel name, city, and country are required' });
@@ -31,8 +31,19 @@ exports.createHotel = async (req, res) => {
 
     // Create hotel
     const [result] = await db.query(
-      'INSERT INTO hotels (name, address, city, country, phone, email, description, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, address, city, country, phone, email, description, image]
+      'INSERT INTO hotels (name, address, city, country, phone, email, description, image, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        name,
+        address,
+        city,
+        country,
+        phone,
+        email,
+        description,
+        image,
+        (latitude !== undefined && latitude !== null) ? latitude : 27.7172,
+        (longitude !== undefined && longitude !== null) ? longitude : 85.3240
+      ]
     );
     const hotelId = result.insertId;
 
@@ -77,7 +88,7 @@ exports.createHotel = async (req, res) => {
 exports.updateHotel = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, address, city, country, phone, email, description, image } = req.body;
+    const { name, address, city, country, phone, email, description, image, latitude, longitude } = req.body;
 
     if (!id) {
       return res.status(400).json({ success: false, message: 'Hotel ID is required' });
@@ -87,8 +98,20 @@ exports.updateHotel = async (req, res) => {
     }
 
     const [result] = await db.query(
-      'UPDATE hotels SET name = ?, address = ?, city = ?, country = ?, phone = ?, email = ?, description = ?, image = ? WHERE id = ?',
-      [name, address, city, country, phone, email, description, image, id]
+      'UPDATE hotels SET name = ?, address = ?, city = ?, country = ?, phone = ?, email = ?, description = ?, image = ?, latitude = ?, longitude = ? WHERE id = ?',
+      [
+        name,
+        address,
+        city,
+        country,
+        phone,
+        email,
+        description,
+        image,
+        (latitude !== undefined && latitude !== null) ? latitude : 27.7172,
+        (longitude !== undefined && longitude !== null) ? longitude : 85.3240,
+        id
+      ]
     );
 
     if (result.affectedRows === 0) {

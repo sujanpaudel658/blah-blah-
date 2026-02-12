@@ -2,16 +2,188 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg-color: #F5F3EF;
+  --primary-navy: #1B2B41;
+  --accent-gold: #B88E2F;
+  --text-charcoal: #2D3748;
+  --border-color: #E2E2E2;
+
+  --status-emerald: #108548;
+  --status-emerald-bg: #E7F3ED;
+  --status-amber: #A36B00;
+  --status-amber-bg: #FFF8E6;
+  --status-red: #B91C1C;
+  --status-red-bg: #FEE2E2;
+  --status-slate: #475569;
+  --status-slate-bg: #F1F5F9;
+}
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-color);
+  color: var(--text-charcoal);
+  font-size: 14px;
+}
+
+/* Scrollbar Style - Functional & Practical */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #F1F1F1;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #BCBCBC;
+  border-radius: 0;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #A0A0A0;
+}
+
+/* Operational Utilities */
+.admin-card {
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.admin-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.admin-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 14px;
+  color: var(--text-charcoal);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.admin-input:focus {
+  border-color: var(--primary-navy);
+}
+
+.admin-button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.admin-button-primary {
+  background-color: var(--primary-navy);
+  color: white;
+  border: none;
+}
+
+.admin-button-primary:hover {
+  background-color: #2D4361;
+}
+
+.admin-button-secondary {
+  background-color: white;
+  color: var(--text-charcoal);
+  border: 1px solid var(--border-color);
+}
+
+.admin-button-secondary:hover {
+  background-color: #F9FAFB;
+  border-color: #D1D5DB;
+}
+
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* Tables */
+.admin-table-container {
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.admin-table th {
+  background-color: #F8F9FA;
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4B5563;
+  text-transform: uppercase;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.admin-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #F1F1F1;
+  font-size: 13px;
+}
+
+.admin-table tr:hover {
+  background-color: #FAFAFA;
+}
+
+/* Form Groups */
+.form-group {
+  margin-bottom: 16px;
+}
+
+/* Animations - Minimal and purposeful */
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }

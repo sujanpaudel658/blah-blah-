@@ -4,7 +4,7 @@
   "description": "Hotel Management System",
   "scripts": {
     "start": "concurrently \"npm run backend\" \"npm run frontend\"",
-    "backend": "cd backend && npm start",
+    "backend": "cd backend && npm run dev",
     "frontend": "cd frontend && npm start",
     "install-all": "cd backend && npm install && cd ../frontend && npm install"
   },

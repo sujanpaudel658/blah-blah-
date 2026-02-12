@@ -3,7 +3,7 @@ const db = require('../config/db');
 // Helper for consistent error responses
 const handleError = (res, error, message) => {
     console.error(`${message}:`, error.message);
-    res.status(500).json({ success: false, message });
+    res.status(500).json({ success: false, message: `${message}: ${error.message}` });
 };
 
 // --- Room Types ---
@@ -28,17 +28,77 @@ exports.createRoomType = async (req, res) => {
     }
 };
 
+exports.updateRoomType = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, description, base_price, max_occupancy, amenities } = req.body;
+
+        // Verify ownership
+        const [existing] = await db.query('SELECT hotel_id FROM room_types WHERE id = ?', [id]);
+        if (existing.length === 0) return res.status(404).json({ success: false, message: 'Category not found' });
+
+        if (req.user.role === 'admin' && req.user.hotel_id !== existing[0].hotel_id) {
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
+        }
+
+        await db.query(
+            'UPDATE room_types SET name = ?, description = ?, base_price = ?, max_occupancy = ?, amenities = ? WHERE id = ?',
+            [name, description, base_price, max_occupancy, JSON.stringify(amenities), id]
+        );
+
+        res.json({ success: true, message: 'Room category updated successfully' });
+    } catch (error) {
+        handleError(res, error, 'Failed to update category');
+    }
+};
+
+exports.deleteRoomType = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Verify ownership
+        const [existing] = await db.query('SELECT hotel_id FROM room_types WHERE id = ?', [id]);
+        if (existing.length === 0) return res.status(404).json({ success: false, message: 'Category not found' });
+
+        if (req.user.role === 'admin' && req.user.hotel_id !== existing[0].hotel_id) {
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
+        }
+
+        // Check if there are rooms assigned to this type
+        const [rooms] = await db.query('SELECT id FROM rooms WHERE room_type_id = ?', [id]);
+        if (rooms.length > 0) {
+            return res.status(400).json({ success: false, message: 'Cannot delete category with registered units. Reassign units first.' });
+        }
+
+        await db.query('DELETE FROM room_types WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Category deleted successfully' });
+    } catch (error) {
+        handleError(res, error, 'Failed to delete category');
+    }
+};
+
 exports.getRoomTypes = async (req, res) => {
     try {
         const { hotelId } = req.query;
-        const [roomTypes] = await db.query('SELECT * FROM room_types WHERE hotel_id = ?', [hotelId]);
+        const [roomTypes] = await db.query(`
+            SELECT 
+                rt.*, 
+                COUNT(r.id) as room_count,
+                GROUP_CONCAT(DISTINCT r.floor ORDER BY r.floor) as floors
+            FROM room_types rt
+            LEFT JOIN rooms r ON rt.id = r.room_type_id
+            WHERE rt.hotel_id = ?
+            GROUP BY rt.id
+        `, [hotelId]);
 
-        // Parse amenities
+        // Parse amenities and floors
         roomTypes.forEach(rt => {
             try {
                 rt.amenities = rt.amenities ? (typeof rt.amenities === 'string' ? JSON.parse(rt.amenities) : rt.amenities) : [];
+                rt.floors = rt.floors ? rt.floors.split(',') : [];
             } catch (e) {
                 rt.amenities = [];
+                rt.floors = [];
             }
         });
 
@@ -52,11 +112,29 @@ exports.getRoomTypes = async (req, res) => {
 
 exports.createRoom = async (req, res) => {
     try {
-        const { hotel_id, room_type_id, room_number, floor, status, notes } = req.body;
+        let { hotel_id, room_type_id, room_number, floor, status, notes } = req.body;
+
+        // Ensure IDs are integers
+        hotel_id = parseInt(hotel_id);
+        room_type_id = parseInt(room_type_id);
+
+        if (!hotel_id || !room_type_id || !room_number) {
+            return res.status(400).json({ success: false, message: 'Missing required fields' });
+        }
 
         // Check if user is admin of this hotel
-        if (req.user.role === 'admin' && req.user.hotel_id !== parseInt(hotel_id)) {
+        if (req.user.role === 'admin' && req.user.hotel_id !== hotel_id) {
             return res.status(403).json({ success: false, message: 'Unauthorized' });
+        }
+
+        // Check for duplicate room number
+        const [existing] = await db.query(
+            'SELECT id FROM rooms WHERE hotel_id = ? AND room_number = ?',
+            [hotel_id, room_number]
+        );
+
+        if (existing.length > 0) {
+            return res.status(400).json({ success: false, message: `Room ${room_number} already exists in your hotel` });
         }
 
         const [result] = await db.query(
@@ -70,9 +148,132 @@ exports.createRoom = async (req, res) => {
     }
 };
 
+exports.bulkCreateRooms = async (req, res) => {
+    try {
+        const { hotel_id, room_type_id, start_number, count, floor } = req.body;
+
+        if (req.user.role === 'admin' && req.user.hotel_id !== parseInt(hotel_id)) {
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
+        }
+
+        const values = [];
+        for (let i = 0; i < count; i++) {
+            values.push([hotel_id, room_type_id, (parseInt(start_number) + i).toString(), floor, 'available', '']);
+        }
+
+        await db.query(
+            'INSERT INTO rooms (hotel_id, room_type_id, room_number, floor, status, notes) VALUES ?',
+            [values]
+        );
+
+        res.status(201).json({ success: true, message: `${count} rooms created successfully` });
+    } catch (error) {
+        handleError(res, error, 'Failed to bulk create rooms');
+    }
+};
+
+exports.bulkAddRoomsByNumbers = async (req, res) => {
+    try {
+        let { hotel_id, room_type_id, room_numbers, floor } = req.body;
+        hotel_id = parseInt(hotel_id);
+        room_type_id = parseInt(room_type_id);
+
+        if (req.user.role === 'admin' && req.user.hotel_id !== hotel_id) {
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
+        }
+
+        const parts = room_numbers.split(',').map(p => p.trim()).filter(p => p.length > 0);
+        const resolvedNumbers = [];
+
+        for (const part of parts) {
+            if (part.includes('-')) {
+                const rangeParts = part.split('-').map(r => r.trim());
+                if (rangeParts.length === 2) {
+                    const start = rangeParts[0];
+                    const end = rangeParts[1];
+
+                    // Match: (Letters optional)(Digits required) - (Letters optional)(Digits required)
+                    const startMatch = start.match(/^([A-Za-z]*)(\d+)$/);
+                    const endMatch = end.match(/^([A-Za-z]*)(\d+)$/);
+
+                    if (startMatch && endMatch && startMatch[1] === endMatch[1]) {
+                        const prefix = startMatch[1];
+                        const sNum = parseInt(startMatch[2]);
+                        const eNum = parseInt(endMatch[2]);
+
+                        if (sNum <= eNum && (eNum - sNum) < 500) { // Limit huge ranges
+                            for (let i = sNum; i <= eNum; i++) {
+                                // Preserve padding (e.g. 001 -> 002)
+                                const numStr = i.toString().padStart(startMatch[2].length, '0');
+                                resolvedNumbers.push(prefix + numStr);
+                            }
+                            continue;
+                        }
+                    }
+                }
+            }
+            resolvedNumbers.push(part);
+        }
+
+        // Deduplicate the list itself
+        const uniqueNumbers = [...new Set(resolvedNumbers)];
+
+        if (uniqueNumbers.length === 0) {
+            return res.status(400).json({ success: false, message: 'No valid room numbers provided' });
+        }
+
+        // Pre-check duplicates in database
+        const [existing] = await db.query(
+            'SELECT room_number FROM rooms WHERE hotel_id = ? AND room_number IN (?)',
+            [hotel_id, uniqueNumbers]
+        );
+        const existingNumbers = existing.map(r => r.room_number);
+        const finalNumbers = uniqueNumbers.filter(n => !existingNumbers.includes(n));
+
+        if (finalNumbers.length === 0) {
+            return res.status(400).json({ success: false, message: 'All provided room numbers already exist in database' });
+        }
+
+        const values = finalNumbers.map(num => {
+            // Smart Floor Detection: e.g. 101 -> Floor 1, 1205 -> Floor 12, A301 -> Floor 3
+            let detectedFloor = floor;
+            const digitMatch = num.match(/\d+/);
+            if (!detectedFloor && digitMatch) {
+                const digits = digitMatch[0];
+                if (digits.length > 2) {
+                    detectedFloor = digits.slice(0, -2);
+                } else {
+                    detectedFloor = '1';
+                }
+            }
+
+            return [
+                hotel_id,
+                room_type_id,
+                num,
+                detectedFloor || '1',
+                'available',
+                ''
+            ];
+        });
+
+        await db.query(
+            'INSERT INTO rooms (hotel_id, room_type_id, room_number, floor, status, notes) VALUES ?',
+            [values]
+        );
+
+        res.status(201).json({
+            success: true,
+            message: `${finalNumbers.length} rooms added.${existingNumbers.length > 0 ? ` (${existingNumbers.length} skipped as duplicates)` : ''}`
+        });
+    } catch (error) {
+        handleError(res, error, 'Failed to add rooms to this category');
+    }
+};
+
 exports.getRooms = async (req, res) => {
     try {
-        const { hotelId } = req.query;
+        const { hotelId, checkIn, checkOut } = req.query;
 
         // If admin, they can only see their own rooms
         const targetHotelId = req.user.role === 'admin' ? req.user.hotel_id : hotelId;
@@ -81,13 +282,32 @@ exports.getRooms = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Hotel ID is required' });
         }
 
-        const [rooms] = await db.query(
-            `SELECT r.*, rt.name as type_name, rt.base_price, rt.max_occupancy, rt.amenities
-       FROM rooms r 
-       JOIN room_types rt ON r.room_type_id = rt.id 
-       WHERE r.hotel_id = ?`,
-            [targetHotelId]
-        );
+        let query = `
+            SELECT r.*, rt.name as type_name, rt.base_price, rt.max_occupancy, rt.amenities,
+            (
+                SELECT COUNT(*) FROM bookings b 
+                WHERE b.room_id = r.id 
+                AND (
+                    (b.status = 'confirmed' AND CURRENT_DATE >= b.check_in_date AND CURRENT_DATE < b.check_out_date)
+                    OR b.status = 'checked_in'
+                )
+            ) as is_occupied
+            FROM rooms r 
+            JOIN room_types rt ON r.room_type_id = rt.id 
+            WHERE r.hotel_id = ?
+        `;
+        const params = [targetHotelId];
+
+        if (req.user.role === 'guest' && checkIn && checkOut) {
+            query += ` AND r.id NOT IN (
+                SELECT room_id FROM bookings 
+                WHERE status NOT IN ('cancelled') 
+                AND (check_in_date < ? AND check_out_date > ?)
+            )`;
+            params.push(checkOut, checkIn);
+        }
+
+        const [rooms] = await db.query(query, params);
 
         // Parse amenities for each room's type
         rooms.forEach(r => {
@@ -153,7 +373,8 @@ exports.searchRooms = async (req, res) => {
         const { location, guests, checkIn, checkOut } = req.query;
 
         let query = `
-      SELECT r.*, rt.name as type_name, rt.base_price, rt.max_occupancy, rt.amenities, h.name as hotel_name, h.city, h.image as hotel_image
+      SELECT r.*, rt.name as type_name, rt.base_price, rt.max_occupancy, rt.amenities, 
+             h.name as hotel_name, h.city as hotel_city, h.image as hotel_image, h.rating
       FROM rooms r
       JOIN room_types rt ON r.room_type_id = rt.id
       JOIN hotels h ON r.hotel_id = h.id

@@ -5,7 +5,6 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
-app.use('/api', require('./routes/testDbRoutes'));
 
 // Middleware
 app.use(cors({
@@ -21,7 +20,9 @@ app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/superadmin', require('./routes/superAdminRoutes'));
 app.use('/api/hotels', require('./routes/hotelRoutes'));
 app.use('/api/rooms', require('./routes/roomRoutes'));
-app.use('/api', require('./routes/testEmailRoutes'));
+app.use('/api/payments', require('./routes/paymentRoutes'));
+app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/reviews', require('./routes/reviewRoutes'));
 
 // Health check
 app.get('/', (req, res) => res.json({ message: 'Hotel Management API is running' }));

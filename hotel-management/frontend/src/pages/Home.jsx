@@ -1,29 +1,62 @@
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
-import React from "react";
-
-const heroCards = [
-  {
-    title: "KATHMANDU",
-    price: "NRS 8,999",
-    image: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=400&q=80",
-  },
-  {
-    title: "POKHARA",
-    price: "NRS 14,500",
-    image: "https://images.unsplash.com/photo-1465101046530-73398c7f28ca?auto=format&fit=crop&w=400&q=80",
-  },
-  {
-    title: "MUSTANG",
-    price: "NRS 11,200",
-    image: "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=400&q=80",
-  },
-];
-
+/**
+ * StayNepal Public Landing Page
+ * 
+ * Purpose: Professional hospitality portal for property discovery and reservation initiation.
+ * Aesthetics: Formal, Structured, Service-Oriented (2016-2019 Enterprise Style)
+ */
 const Home = () => {
-  const [searchParams, setSearchParams] = React.useState({ location: '', guests: '', checkIn: '', checkOut: '' });
-  const [rooms, setRooms] = React.useState([]);
-  const [searching, setSearching] = React.useState(false);
+  const navigate = useNavigate();
+  // Search Parameter State
+  const [searchParams, setSearchParams] = useState({
+    location: '',
+    guests: '',
+    checkIn: '',
+    checkOut: ''
+  });
 
+  // Inventory Results State
+  const [rooms, setRooms] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [user, setUser] = useState(null);
+
+  // Hydrate session on mount
+  useEffect(() => {
+    const userData = localStorage.getItem('user');
+    if (userData) {
+      setUser(JSON.parse(userData));
+    }
+  }, []);
+
+  /**
+   * Logical Routing Handler
+   * Ensures that authenticated administrators and guests are returned 
+   * to their respective operational consoles upon identity block interaction.
+   */
+  const handleLogoClick = () => {
+    if (!user) {
+      window.location.reload();
+      return;
+    }
+
+    switch (user.role) {
+      case 'admin':
+        navigate('/admin/dashboard');
+        break;
+      case 'super_admin':
+        navigate('/super/dashboard');
+        break;
+      default:
+        navigate('/guest/dashboard');
+    }
+  };
+
+  /**
+   * Inventory Search Logic
+   * Queries the property network for available suite categories
+   */
   const handleSearch = async (e) => {
     e.preventDefault();
     setSearching(true);
@@ -31,181 +64,255 @@ const Home = () => {
       const query = new URLSearchParams(searchParams).toString();
       const response = await fetch(`http://localhost:5000/api/rooms/search?${query}`);
       const data = await response.json();
+
       if (data.success) {
-        setRooms(data.rooms);
-        // Scroll to results
+        /* 
+           AGGREGATION LOGIC: 
+           Collapse individual room units into a single consolidated property view 
+           to avoid list redundancy for high-inventory hotels.
+        */
+        const groupedByHotel = data.rooms.reduce((acc, room) => {
+          const hotelId = room.hotel_id;
+          if (!acc[hotelId]) {
+            acc[hotelId] = {
+              id: room.hotel_id,
+              name: room.hotel_name,
+              image: room.hotel_image,
+              city: room.hotel_city,
+              startingPrice: Number(room.base_price),
+              totalUnits: 0,
+              amenities: room.amenities || [],
+              rating: room.rating
+            };
+          }
+
+          acc[hotelId].totalUnits++;
+
+          // Track the lowest entry price for the 'Starts From' display
+          if (Number(room.base_price) < acc[hotelId].startingPrice) {
+            acc[hotelId].startingPrice = Number(room.base_price);
+          }
+
+          return acc;
+        }, {});
+
+        setRooms(Object.values(groupedByHotel));
+
+        // Controlled scroll to results node
         setTimeout(() => {
-          document.getElementById('search-results')?.scrollIntoView({ behavior: 'smooth' });
+          const resultsNode = document.getElementById('search-results');
+          if (resultsNode) resultsNode.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 100);
       }
     } catch (error) {
-      console.error('Search error:', error);
+      console.error('System Search Interruption:', error);
     } finally {
       setSearching(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-display text-slate-900 overflow-x-hidden flex flex-col">
-      {/* Navigation */}
-      <nav className="sticky top-0 z-50 w-full bg-white/80 backdrop-blur-md border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <div className="flex items-center gap-3 group cursor-pointer" onClick={() => window.location.reload()}>
-              <div className="w-8 h-8 bg-green-900 rounded-lg flex items-center justify-center text-white font-bold text-xs shadow-md">NS</div>
-              <span className="font-bold text-lg tracking-tight text-green-900">NEPAL STAYS</span>
-            </div>
+    <div className="min-h-screen bg-[#F5F3EF] text-[#2D3748] antialiased flex flex-col font-sans">
+      {/* Professional Header */}
+      <nav className="h-20 bg-[#1B2B41] border-b border-[#2D4361] sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto h-full px-6 flex items-center justify-between">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={handleLogoClick}>
+            <span className="material-symbols-outlined text-[#B88E2F] text-2xl">domain</span>
+            <span className="text-white font-bold text-lg tracking-tight uppercase">STAYNEPAL</span>
+          </div>
 
-            {/* Desktop Menu */}
-            <div className="hidden md:flex items-center gap-8">
-              <a className="text-xs font-semibold text-slate-600 hover:text-green-900 transition-colors uppercase tracking-wider" href="#">About</a>
-              <a className="text-xs font-semibold text-slate-600 hover:text-green-900 transition-colors uppercase tracking-wider" href="#">Destinations</a>
-              <a className="text-xs font-semibold text-slate-600 hover:text-green-900 transition-colors uppercase tracking-wider" href="#">Contact</a>
-            </div>
+          <div className="hidden md:flex items-center gap-10">
+            <a className="text-[10px] font-bold text-[#A0AEC0] hover:text-white transition-colors uppercase tracking-[0.2em]" href="#">About Us</a>
+            <a className="text-[10px] font-bold text-[#A0AEC0] hover:text-white transition-colors uppercase tracking-[0.2em]" href="#">Properties</a>
+            <a className="text-[10px] font-bold text-[#A0AEC0] hover:text-white transition-colors uppercase tracking-[0.2em]" href="#">Partnerships</a>
+          </div>
 
-            {/* Actions */}
-            <div className="flex items-center gap-3">
-              <a href="/login" className="flex items-center justify-center h-9 px-4 rounded-lg text-sm font-bold text-green-900 hover:bg-green-50 transition-colors border border-green-900/10">Sign In</a>
-              <a href="/signup" className="hidden sm:flex items-center justify-center h-9 px-4 rounded-lg text-sm font-bold bg-green-900 text-white hover:bg-green-800 transition-colors shadow-sm">Get Started</a>
-            </div>
+          <div className="flex items-center gap-3">
+            <a href="/login" className="text-[10px] font-bold text-white uppercase tracking-[0.15em] px-6 py-3 hover:text-[#B88E2F] transition-all">Login</a>
+            <a href="/signup" className="bg-[#B88E2F] text-white text-[10px] font-bold uppercase tracking-[0.15em] px-8 py-3.5 rounded-xl hover:bg-[#9E7A28] hover:scale-105 active:scale-95 transition-all shadow-lg">Sign Up</a>
           </div>
         </div>
       </nav>
 
-      {/* Main Hero Section */}
-      <main className="flex-1 flex flex-col items-center justify-center px-4 py-8">
-        <section className="w-full max-w-5xl mx-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
-            <div className="flex flex-col gap-4 text-center lg:text-left items-center lg:items-start">
-              <div className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-green-100 text-green-800 text-[10px] font-bold tracking-widest uppercase mb-1">
-                Luxury Redefined
+      {/* Hero & Selection Interface */}
+      <main className="flex-1 overflow-x-hidden pt-16 pb-24">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center mb-20">
+            <div className="flex flex-col gap-8">
+              <div className="flex items-center gap-3">
+                <span className="w-12 h-[1px] bg-[#B88E2F]"></span>
+                <span className="text-[11px] font-bold text-[#B88E2F] uppercase tracking-[0.4em]">Integrated Hospitality Portal</span>
               </div>
-              <div>
-                <h1 className="text-4xl lg:text-6xl font-black text-green-900 leading-[0.95] tracking-tighter">
-                  Stay<span className="text-slate-300">.</span><br />
-                  Relax<span className="text-slate-300">.</span><br />
-                  Discover<span className="text-green-600">.</span>
-                </h1>
-              </div>
-              <p className="text-sm text-slate-600 max-w-sm leading-relaxed">
-                Experience luxury refined in Nepal's most stunning locations. From mountain peaks to serene valleys, our curated stays offer the ultimate gateway to adventure.
+              <h1 className="text-6xl lg:text-8xl font-bold text-[#1B2B41] leading-[0.9] tracking-tighter">
+                Secure <br />
+                Destination <br />
+                Registry<span className="text-[#B88E2F]">.</span>
+              </h1>
+              <p className="text-lg text-[#64748B] max-w-md leading-relaxed">
+                Direct access to Nepal's established property network.
+                Verified inventory for metabolic and professional hospitality requirements.
               </p>
-              <div className="flex flex-wrap gap-3 justify-center lg:justify-start mt-2">
-                <a href="#" className="px-6 py-2.5 rounded-lg bg-green-900 text-white font-extrabold shadow-lg shadow-green-900/20 hover:bg-green-800 hover:scale-105 transition-all text-sm">
-                  BOOK YOUR STAY
-                </a>
-                <a href="#" className="px-6 py-2.5 rounded-lg bg-white text-slate-900 font-extrabold border border-slate-200 hover:bg-slate-50 transition-all text-sm">
-                  VIEW GALLERY
-                </a>
-              </div>
             </div>
 
-            <div className="relative h-[400px] w-full hidden sm:flex items-center justify-center">
-              {heroCards.map((card, idx) => (
-                <div
-                  key={card.title}
-                  className={`absolute rounded-2xl shadow-xl overflow-hidden flex flex-col justify-end bg-white transition-all duration-500 hover:scale-105 hover:z-30
-                    ${idx === 0 ? 'w-40 h-60 -translate-x-28 rotate-[-5deg] z-10' : ''}
-                    ${idx === 1 ? 'w-48 h-64 z-20 scale-110 shadow-green-900/10' : ''}
-                    ${idx === 2 ? 'w-40 h-60 translate-x-28 rotate-[5deg] z-10' : ''}
-                  `}
-                >
-                  <img src={card.image} alt={card.title} className="object-cover w-full h-full absolute top-0 left-0" />
-                  <div className="relative z-10 p-4 bg-gradient-to-t from-black/80 via-black/10 to-transparent text-white">
-                    <div className="text-[9px] uppercase font-bold tracking-[0.2em] opacity-80 mb-0.5">{card.title}</div>
-                    <div className="text-lg font-black">{card.price}</div>
-                  </div>
+            {/* Inventory Card Cluster - Formal Representation */}
+            <div className="hidden lg:grid grid-cols-2 gap-6">
+              <div className="bg-white border border-[#E2E2E2] p-2 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.05)] transition-transform hover:-translate-y-2 duration-500">
+                <div className="rounded-xl overflow-hidden">
+                  <img src="https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=400&h=300&q=80" className="w-full h-48 object-cover grayscale-[0.2]" alt="KTM" />
                 </div>
-              ))}
+                <div className="p-6">
+                  <span className="text-[10px] font-bold text-[#B88E2F] uppercase tracking-widest block mb-1">Metropolitan Node</span>
+                  <p className="text-sm font-bold text-[#1B2B41] tracking-tight">KATHMANDU VALLEY</p>
+                </div>
+              </div>
+              <div className="bg-white border border-[#E2E2E2] p-2 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.05)] translate-y-12 transition-transform hover:-translate-y-2 duration-500">
+                <div className="rounded-xl overflow-hidden">
+                  <img src="https://images.unsplash.com/photo-1465101046530-73398c7f28ca?auto=format&fit=crop&w=400&h=300&q=80" className="w-full h-48 object-cover grayscale-[0.2]" alt="PKR" />
+                </div>
+                <div className="p-6">
+                  <span className="text-[10px] font-bold text-[#B88E2F] uppercase tracking-widest block mb-1">Regional District</span>
+                  <p className="text-sm font-bold text-[#1B2B41] tracking-tight">LAKESHIDE POKHARA</p>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Booking Bar */}
-          <div className="mt-12 max-w-3xl mx-auto">
-            <div className="bg-white p-1.5 rounded-xl shadow-xl shadow-slate-200 border border-slate-100">
-              <form className="flex flex-col md:flex-row items-stretch md:items-center" onSubmit={handleSearch}>
-                <div className="flex-1 px-4 py-3 border-b md:border-b-0 md:border-r border-slate-100">
-                  <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Location</label>
+          {/* Booking Terminal */}
+          <div className="bg-[#1B2B41] p-10 shadow-[0_40px_80px_rgba(0,0,0,0.2)] rounded-[20px] relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-[#B88E2F]/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
+            <form className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end relative z-10" onSubmit={handleSearch}>
+              <div className="space-y-4">
+                <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#A0AEC0] flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px]">location_on</span>
+                  DESTINATION NODE
+                </label>
+                <div className="bg-[#2D4361] rounded-xl overflow-hidden focus-within:ring-2 ring-[#B88E2F]/50 transition-all">
                   <input
                     type="text"
-                    placeholder="Where to?"
+                    placeholder="City/Region"
                     value={searchParams.location}
                     onChange={(e) => setSearchParams({ ...searchParams, location: e.target.value })}
-                    className="w-full bg-transparent font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none text-xs"
+                    className="w-full bg-transparent border-none px-6 py-4.5 text-white text-sm font-bold placeholder-[#64748B] outline-none h-[56px]"
                   />
                 </div>
-                <div className="flex-1 px-4 py-3 border-b md:border-b-0 md:border-r border-slate-100">
-                  <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Check In</label>
+              </div>
+              <div className="space-y-4">
+                <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#A0AEC0] flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px]">event</span>
+                  CHECK-IN DATE
+                </label>
+                <div className="bg-[#2D4361] rounded-xl overflow-hidden focus-within:ring-2 ring-[#B88E2F]/50 transition-all">
                   <input
-                    type="text"
-                    placeholder="Add dates"
+                    type="date"
                     value={searchParams.checkIn}
                     onChange={(e) => setSearchParams({ ...searchParams, checkIn: e.target.value })}
-                    className="w-full bg-transparent font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none text-xs"
+                    className="w-full bg-transparent border-none px-6 py-4.5 text-white text-sm font-bold outline-none h-[56px] [color-scheme:dark]"
                   />
                 </div>
-                <div className="flex-1 px-4 py-3">
-                  <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Guests</label>
+              </div>
+              <div className="space-y-4">
+                <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#A0AEC0] flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px]">group</span>
+                  CAPACITY LEVEL
+                </label>
+                <div className="bg-[#2D4361] rounded-xl overflow-hidden focus-within:ring-2 ring-[#B88E2F]/50 transition-all">
                   <input
-                    type="text"
-                    placeholder="Who's coming?"
+                    type="number"
+                    min="1"
+                    placeholder="Total Guests"
                     value={searchParams.guests}
                     onChange={(e) => setSearchParams({ ...searchParams, guests: e.target.value })}
-                    className="w-full bg-transparent font-bold text-slate-900 placeholder:text-slate-300 focus:outline-none text-xs"
+                    className="w-full bg-transparent border-none px-6 py-4.5 text-white text-sm font-bold placeholder-[#64748B] outline-none h-[56px]"
                   />
                 </div>
-                <button type="submit" disabled={searching} className="bg-green-900 text-white px-8 py-3 rounded-lg font-black hover:bg-green-800 transition-all m-1 text-sm disabled:opacity-50">
-                  {searching ? 'SEARCHING...' : 'SEARCH'}
-                </button>
-              </form>
-            </div>
+              </div>
+              <button
+                type="submit"
+                disabled={searching}
+                className="bg-[#B88E2F] text-white h-[56px] rounded-xl font-bold uppercase tracking-[0.15em] hover:bg-[#9E7A28] hover:scale-[1.01] active:scale-[0.99] transition-all text-[11px] disabled:opacity-50 shadow-lg flex items-center justify-center gap-3"
+              >
+                {searching ? (
+                  <span className="material-symbols-outlined animate-spin text-[18px]">refresh</span>
+                ) : (
+                  <span className="material-symbols-outlined text-[18px]">search</span>
+                )}
+                {searching ? 'QUERYING...' : 'INITIATE SEARCH'}
+              </button>
+            </form>
           </div>
 
-          {/* Search Results Display */}
+          {/* Search Results Display Node */}
           {(rooms.length > 0 || searching) && (
-            <div id="search-results" className="mt-16 bg-white p-8 rounded-3xl shadow-2xl border border-slate-50">
-              <h2 className="text-2xl font-black text-green-900 mb-6 flex items-center gap-2">
-                <span className="w-2 h-8 bg-green-900 rounded-full"></span>
-                {rooms.length} Available Stays Found
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {rooms.map(room => (
-                  <div key={room.id} className="group bg-slate-50 rounded-2xl overflow-hidden border border-slate-100 hover:border-green-200 transition-all flex flex-col sm:flex-row h-full">
-                    <div className="w-full sm:w-48 h-48 sm:h-auto overflow-hidden relative">
+            <div id="search-results" className="mt-20 bg-white border border-[#E2E2E2] p-16 rounded-3xl fade-in shadow-[0_40px_100px_rgba(0,0,0,0.08)] relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-2 h-full bg-[#B88E2F]"></div>
+              <div className="flex items-center justify-between mb-12 border-b border-[#F1F1F1] pb-8">
+                <div>
+                  <h2 className="text-3xl font-bold text-[#1B2B41] tracking-tight">
+                    AVAILABLE ASSETS<span className="text-[#B88E2F]">.</span>
+                  </h2>
+                  <p className="text-[11px] font-bold text-[#64748B] uppercase tracking-[0.3em] mt-2">
+                    {rooms.length} NODES IDENTIFIED IN REGISTRY
+                  </p>
+                </div>
+                <div className="text-right hidden sm:block">
+                  <span className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-[0.4em] block">STAYNEPAL REAL-TIME API</span>
+                  <span className="text-[10px] font-mono font-bold text-[#B88E2F]">00{rooms.length}_ST_X_01</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {rooms.map(hotel => (
+                  <div key={hotel.id} className="border border-[#E2E2E2] bg-white flex flex-col sm:flex-row hover:border-[#B88E2F] transition-all rounded-xl overflow-hidden shadow-sm group">
+                    <div className="w-full sm:w-64 h-64 sm:h-auto overflow-hidden">
                       <img
-                        src={room.hotel_image || 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=400'}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                        alt={room.hotel_name}
+                        src={hotel.image || 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=500'}
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                        alt={hotel.name}
                       />
-                      <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-white/90 backdrop-blur text-[9px] font-black text-green-900 uppercase tracking-widest">
-                        {room.city}
-                      </div>
                     </div>
-                    <div className="p-5 flex-1 flex flex-col">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{room.hotel_name}</p>
-                          <h3 className="text-lg font-black text-slate-900 leading-tight">{room.type_name} - Room {room.room_number}</h3>
+                    <div className="p-8 flex-1 flex flex-col">
+                      <div className="flex justify-between items-start mb-6">
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold text-[#B88E2F] uppercase tracking-[0.2em] block mb-1">Verified Property Node</span>
+                          <h3 className="text-3xl font-bold text-[#1B2B41] tracking-tighter">{hotel.name}</h3>
+                          <div className="flex items-center gap-2 text-[#64748B] text-xs font-semibold uppercase tracking-wider">
+                            <span className="material-symbols-outlined text-sm text-[#B88E2F]">location_on</span>
+                            {hotel.city || hotel.hotel_city}, NEPAL
+                          </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-xs font-bold text-slate-400 line-through">NRS {Math.round(room.base_price * 1.2)}</p>
-                          <p className="text-xl font-black text-green-900">NRS {room.base_price}</p>
+                          <div className="flex items-center gap-1 justify-end mb-2">
+                            <span className="text-[10px] font-bold text-[#B88E2F] mr-1">{Number(hotel.rating || 0).toFixed(1)}</span>
+                            {[...Array(5)].map((_, i) => (
+                              <span key={i} className={`material-symbols-outlined text-[14px] ${i < Math.round(hotel.rating || 0) ? 'text-yellow-400' : 'text-slate-200'} fill-current`}>star</span>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-[#A0AEC0] uppercase font-bold tracking-widest mb-1">Starts From</p>
+                          <p className="text-3xl font-bold text-[#1B2B41] tracking-tight">NRS {hotel.startingPrice.toLocaleString()}</p>
+                          <p className="text-[10px] text-[#B88E2F] uppercase font-bold tracking-tighter mt-1">/ Nightly Rate</p>
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-1.5 mt-auto">
-                        {room.amenities.slice(0, 3).map((amt, idx) => (
-                          <span key={idx} className="bg-white px-2 py-1 rounded-md text-[9px] font-bold text-slate-500 border border-slate-100">
-                            {amt.toUpperCase()}
+
+                      <div className="flex flex-wrap gap-2 mb-8">
+                        {(hotel.amenities || []).slice(0, 5).map((amt, idx) => (
+                          <span key={idx} className="text-[9px] font-bold text-[#64748B] uppercase tracking-[0.15em] bg-[#F9FAFB] border border-[#F1F1F1] px-3 py-1.5 rounded-full">
+                            {amt}
                           </span>
                         ))}
-                        {room.amenities.length > 3 && (
-                          <span className="px-2 py-1 text-[9px] font-bold text-slate-400">+{room.amenities.length - 3} more</span>
-                        )}
                       </div>
-                      <button className="mt-4 w-full py-2.5 rounded-xl bg-green-900 text-white text-xs font-black shadow-lg shadow-green-900/10 hover:bg-green-800 transition-all">
-                        BOOK FOR NRS {room.base_price}
-                      </button>
+
+                      <div className="mt-auto flex items-center justify-between pt-6 border-t border-[#F1F1F1]">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-[#108548] animate-pulse"></div>
+                          <span className="text-[10px] font-bold text-[#108548] uppercase tracking-widest">{hotel.totalUnits} Units Available Now</span>
+                        </div>
+                        <a
+                          href="/login"
+                          className="bg-[#1B2B41] text-white py-3 px-8 text-[11px] font-bold uppercase tracking-[0.2em] hover:bg-[#B88E2F] transition-all rounded-lg shadow-lg transform active:scale-95"
+                        >
+                          Inspect Assets
+                        </a>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -213,28 +320,28 @@ const Home = () => {
             </div>
           )}
 
-          {/* Stats */}
-          <div className="mt-12 flex justify-center gap-10 text-center border-t border-slate-200 pt-8">
+          {/* Infrastructure Statistics */}
+          <div className="mt-20 grid grid-cols-2 md:grid-cols-3 gap-12 text-center border-t border-[#E2E2E2] pt-12">
             <div>
-              <div className="text-2xl font-black text-green-900 leading-none">98%</div>
-              <div className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">Occupancy</div>
+              <p className="text-4xl font-bold text-[#1B2B41] tracking-tighter">98.4%</p>
+              <span className="text-[10px] font-bold text-[#64748B] mt-2 uppercase tracking-[0.2em] block">Load Efficiency</span>
             </div>
-            <div className="w-px h-8 bg-slate-200"></div>
-            <div>
-              <div className="text-2xl font-black text-green-900 leading-none">24+</div>
-              <div className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">Destinations</div>
+            <div className="hidden md:block">
+              <p className="text-4xl font-bold text-[#1B2B41] tracking-tighter">14</p>
+              <span className="text-[10px] font-bold text-[#64748B] mt-2 uppercase tracking-[0.2em] block">Operational Hubs</span>
             </div>
-            <div className="w-px h-8 bg-slate-200"></div>
             <div>
-              <div className="text-2xl font-black text-green-900 leading-none">15k+</div>
-              <div className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-widest">Happy Guests</div>
+              <p className="text-4xl font-bold text-[#1B2B41] tracking-tighter">24/7</p>
+              <span className="text-[10px] font-bold text-[#64748B] mt-2 uppercase tracking-[0.2em] block">Systems Availability</span>
             </div>
           </div>
-        </section>
+        </div>
       </main>
 
-      <footer className="py-8 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-        &copy; 2024 Nepal Stays. All rights reserved.
+      <footer className="py-12 bg-white border-t border-[#E2E2E2]">
+        <div className="max-w-7xl mx-auto px-6 text-center">
+          <p className="text-[10px] font-bold text-[#94A3B8] uppercase tracking-[0.3em]">&copy; 2024 staynepal architectural hospitality systems. all rights reserved.</p>
+        </div>
       </footer>
     </div>
   );
