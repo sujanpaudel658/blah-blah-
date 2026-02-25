@@ -187,3 +187,75 @@ exports.getAllGuests = async (req, res) => {
     handleError(res, error, 'Failed to fetch guests');
   }
 };
+
+// Get pending hotel requests
+exports.getPendingHotels = async (req, res) => {
+  try {
+    const [hotels] = await db.query(
+      `SELECT h.*, u.full_name as owner_name, u.email as owner_email 
+       FROM hotels h 
+       LEFT JOIN users u ON h.owner_id = u.id 
+       WHERE h.status = 'pending' 
+       ORDER BY h.created_at DESC`
+    );
+    res.json({ success: true, hotels });
+  } catch (error) {
+    handleError(res, error, 'Failed to fetch pending hotels');
+  }
+};
+
+// Verify hotel and promote owner to admin
+exports.verifyHotel = async (req, res) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const { id } = req.params;
+
+    // 1. Get hotel and owner details
+    const [hotels] = await connection.query('SELECT * FROM hotels WHERE id = ?', [id]);
+    if (hotels.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Hotel not found' });
+    }
+    const hotel = hotels[0];
+
+    if (hotel.status === 'verified') {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: 'Hotel is already verified' });
+    }
+
+    // 2. Update hotel status
+    await connection.query('UPDATE hotels SET status = "verified" WHERE id = ?', [id]);
+
+    // 3. Promote owner to admin if owner_id exists
+    if (hotel.owner_id) {
+      const [users] = await connection.query('SELECT * FROM users WHERE id = ?', [hotel.owner_id]);
+      if (users.length > 0) {
+        // Only promote if not already superadmin/admin (though presumably they are guest)
+        // Also associate them with this hotel
+        await connection.query(
+          'UPDATE users SET role = "admin", hotel_id = ? WHERE id = ?',
+          [id, hotel.owner_id]
+        );
+      }
+    }
+
+    await connection.commit();
+
+    // Fetch updated data to return
+    const [updatedHotel] = await db.query('SELECT * FROM hotels WHERE id = ?', [id]);
+
+    res.json({
+      success: true,
+      message: 'Hotel verified and owner promoted to admin successfully',
+      hotel: updatedHotel[0]
+    });
+
+  } catch (error) {
+    await connection.rollback();
+    handleError(res, error, 'Failed to verify hotel');
+  } finally {
+    connection.release();
+  }
+};

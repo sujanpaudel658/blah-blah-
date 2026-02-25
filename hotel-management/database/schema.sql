@@ -1,14 +1,6 @@
 -- Hotel Management System Database Schema
 
--- Drop existing tables if you want to recreate (uncomment if needed)
--- DROP TABLE IF EXISTS reviews;
--- DROP TABLE IF EXISTS payments;
--- DROP TABLE IF EXISTS bookings;
--- DROP TABLE IF EXISTS price_calendar;
--- DROP TABLE IF EXISTS rooms;
--- DROP TABLE IF EXISTS room_types;
--- DROP TABLE IF EXISTS users;
--- DROP TABLE IF EXISTS hotels;
+
 
 -- Create hotels table first (referenced by users)
 CREATE TABLE IF NOT EXISTS hotels (

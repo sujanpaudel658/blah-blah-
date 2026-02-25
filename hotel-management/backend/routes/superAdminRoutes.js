@@ -1,11 +1,13 @@
 const express = require('express');
 const { protect, superAdminOnly } = require('../middleware/auth');
-const { 
-  getAllHotels, 
-  createHotel, 
-  getAllAdmins, 
+const {
+  getAllHotels,
+  createHotel,
+  getAllAdmins,
   createAdmin,
-  getAllGuests 
+  getAllGuests,
+  getPendingHotels,
+  verifyHotel
 } = require('../controllers/superAdminController');
 
 const router = express.Router();
@@ -16,6 +18,8 @@ router.use(protect, superAdminOnly);
 // hotel routes
 router.get('/hotels', getAllHotels);
 router.post('/hotels', createHotel);
+router.get('/hotels/pending', getPendingHotels);
+router.put('/hotels/:id/verify', verifyHotel);
 
 // admin management routes
 router.get('/admins', getAllAdmins);
