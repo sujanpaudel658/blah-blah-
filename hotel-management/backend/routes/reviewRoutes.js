@@ -4,8 +4,12 @@ const { protect } = require('../middleware/auth');
 const {
     createReview,
     getHotelReviews,
-    getBookingReview
+    getBookingReview,
+    getFeaturedReviews
 } = require('../controllers/reviewController');
+
+// Public: Get featured reviews
+router.get('/featured', getFeaturedReviews);
 
 // Guest & Admin: Get reviews for a hotel
 router.get('/hotel/:hotelId', getHotelReviews);

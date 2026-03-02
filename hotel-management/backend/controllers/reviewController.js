@@ -20,6 +20,14 @@ exports.createReview = async (req, res) => {
 
         const booking = bookings[0];
 
+        // 1.5. Only allow reviews for checked-in or checked-out bookings
+        if (!['checked_in', 'checked_out'].includes(booking.status)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Feedback protocols can only be initiated for verified checked-in or completed operational sessions.'
+            });
+        }
+
         // 2. Prevent duplicate reviews for same booking
         const [existing] = await db.query('SELECT id FROM reviews WHERE booking_id = ?', [booking_id]);
         if (existing.length > 0) {
@@ -60,10 +68,11 @@ exports.getHotelReviews = async (req, res) => {
 
     try {
         const [reviews] = await db.query(
-            `SELECT r.*, u.full_name as reviewer_name 
+            `SELECT r.*, u.full_name as reviewer_name, b.status as booking_status
        FROM reviews r 
        JOIN users u ON r.user_id = u.id 
-       WHERE r.hotel_id = ? 
+       JOIN bookings b ON r.booking_id = b.id
+       WHERE r.hotel_id = ? AND b.status IN ('checked_in', 'checked_out')
        ORDER BY r.created_at DESC`,
             [hotel_id]
         );
@@ -92,5 +101,28 @@ exports.getBookingReview = async (req, res) => {
     } catch (error) {
         console.error('Get booking review error:', error);
         res.status(500).json({ success: false, message: 'Failed to cross-reference registry.' });
+    }
+};
+
+/**
+ * Get featured reviews for landing page
+ */
+exports.getFeaturedReviews = async (req, res) => {
+    try {
+        const [reviews] = await db.query(
+            `SELECT r.*, u.full_name as reviewer_name, h.name as hotel_name, b.status as booking_status
+       FROM reviews r 
+       JOIN users u ON r.user_id = u.id 
+       JOIN hotels h ON r.hotel_id = h.id
+       JOIN bookings b ON r.booking_id = b.id
+       WHERE b.status IN ('checked_in', 'checked_out')
+       ORDER BY r.rating DESC, r.created_at DESC 
+       LIMIT 6`
+        );
+
+        res.json({ success: true, reviews });
+    } catch (error) {
+        console.error('Get featured reviews error:', error);
+        res.status(500).json({ success: false, message: 'Failed to retrieve featured experiences.' });
     }
 };

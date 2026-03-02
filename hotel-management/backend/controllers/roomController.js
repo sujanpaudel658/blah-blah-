@@ -378,7 +378,7 @@ exports.searchRooms = async (req, res) => {
       FROM rooms r
       JOIN room_types rt ON r.room_type_id = rt.id
       JOIN hotels h ON r.hotel_id = h.id
-      WHERE r.status = 'available'
+      WHERE r.status = 'available' AND h.status = 'verified'
     `;
 
         const params = [];

@@ -2,7 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { getAllHotels, updateHotel } = require('../controllers/superAdminController');
+const { requestHotel } = require('../controllers/hotelController');
 const { protect } = require('../middleware/auth');
+
+// Protected: Request to list new hotel (User)
+router.post('/request', protect, requestHotel);
 
 // Public: Get all hotels
 router.get('/', getAllHotels);
