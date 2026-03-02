@@ -1,4 +1,5 @@
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 const emailService = require('../services/email.service');
 
@@ -67,7 +68,14 @@ const verifyAndUpgradePayment = async (paymentId, pidx) => {
                 "UPDATE payments SET status = 'completed', transaction_id = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ?",
                 [vRes.data.transaction_id, paymentId]
             );
+            
             const [updated] = await db.query("SELECT * FROM payments WHERE id = ?", [paymentId]);
+            if (updated.length > 0) {
+                const [booking] = await db.query("SELECT room_id FROM bookings WHERE id = ?", [updated[0].booking_id]);
+                if (booking.length > 0) {
+                    await db.query("UPDATE rooms SET status = 'booked' WHERE id = ?", [booking[0].room_id]);
+                }
+            }
             return updated[0];
         }
     } catch (e) {
@@ -78,7 +86,7 @@ const verifyAndUpgradePayment = async (paymentId, pidx) => {
 
 const initiatePayment = async (req, res) => {
     try {
-        const { hotel_id, room_type_id, check_in_date, check_out_date, num_guests, customer_info, amount } = req.body;
+        const { hotel_id, room_type_id, check_in_date, check_out_date, num_guests, num_rooms, payment_method, customer_info, amount } = req.body;
         const user_id = req.user.id;
 
         if (!hotel_id || !room_type_id || !check_in_date || !check_out_date) {
@@ -94,7 +102,7 @@ const initiatePayment = async (req, res) => {
 
         // 1. Availability check: ensure no overlap with existing confirmed stays
         const [availableRooms] = await db.query(`
-            SELECT r.id, r.room_number, rt.base_price, rt.name as type_name
+            SELECT r.id, r.room_number, rt.base_price, rt.name as type_name, rt.max_occupancy
             FROM rooms r
             JOIN room_types rt ON r.room_type_id = rt.id
             WHERE r.hotel_id = ? 
@@ -116,19 +124,37 @@ const initiatePayment = async (req, res) => {
             });
         }
 
-        // 2. Select a room randomly from available ones
+        const numRooms = parseInt(num_rooms, 10) || 1;
+
+        if (availableRooms.length < numRooms) {
+            return res.status(400).json({
+                success: false,
+                message: `Only ${availableRooms.length} rooms of this type are available for the selected dates. Please select fewer rooms or try another category.`
+            });
+        }
+
+        // 2. Select rooms randomly from available ones
         // Logic: Distribute usage across identical units to prevent uneven wear and tear.
-        const targetRoom = availableRooms[Math.floor(Math.random() * availableRooms.length)];
-        const room_id = targetRoom.id;
+        const targetRoom = availableRooms[0]; // just grab the first to read base_price and occupancy
+
+        // 3. Occupancy Capacity Check
+        if (num_guests > targetRoom.max_occupancy * numRooms) {
+            return res.status(400).json({
+                success: false,
+                code: 'EXCEEDS_CAPACITY',
+                message: `Booking failed. Only ${targetRoom.max_occupancy * numRooms} guests are permitted per ${numRooms} ${targetRoom.type_name} room(s).`,
+                max_occupancy: targetRoom.max_occupancy * numRooms
+            });
+        }
 
         const stayDuration = new Date(check_out_date) - new Date(check_in_date);
         const nights = Math.max(1, Math.ceil(stayDuration / (1000 * 60 * 60 * 24)));
-        const expectedTotal = targetRoom.base_price * nights;
+        const expectedTotal = targetRoom.base_price * nights * numRooms;
 
         // Strict Price Verification
         // SECURITY NOTE: Recalculate on server to prevent client-side tampering. 
         // We do not trust the 'amount' field sent directly from the frontend payload.
-        if (Number(amount) !== expectedTotal) {
+        if (Math.abs(Number(amount) - expectedTotal) > 0.05) {
             return res.status(400).json({
                 success: false,
                 message: `Price validation failed. Expected: ${expectedTotal}, Received: ${amount}`
@@ -143,40 +169,108 @@ const initiatePayment = async (req, res) => {
 
         // Reference generation (BK- prefix kept for legacy accounting compatibility)
         const booking_ref = `BK-${Date.now()}`;
-        const [bookingInsert] = await db.query(
-            `INSERT INTO bookings (booking_reference, user_id, hotel_id, room_id, check_in_date, check_out_date, num_guests, total_nights, price_per_night, total_amount, status, payment_status, guest_name, guest_email, guest_phone) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', ?, ?, ?)`,
-            [booking_ref, user_id, hotel_id, room_id, check_in_date, check_out_date, num_guests || 1, nights, targetRoom.base_price, expectedTotal, customer_info.name, customer_info.email, customer_info.phone]
-        );
+        const bookingIds = [];
+        
+        // Distribute guests among rooms
+        const baseGuestsPerRoom = Math.floor(num_guests / numRooms);
+        const remainingGuests = num_guests % numRooms;
 
-        const bookingId = bookingInsert.insertId;
+        // Shuffle available rooms to rotate usage
+        const shuffledRooms = availableRooms.sort(() => 0.5 - Math.random()).slice(0, numRooms);
 
-        // Safety check: ensure the record was verified by a fresh read
-        const [purchasedItemData] = await db.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
+        for (let i = 0; i < numRooms; i++) {
+            const currentRoomId = shuffledRooms[i].id;
+            const guestsForThisRoom = baseGuestsPerRoom + (i < remainingGuests ? 1 : 0);
+            const unique_booking_ref = `${booking_ref}-${i + 1}`; // Ensure unique booking_reference for DB constraint
+
+            const current_total = targetRoom.base_price * nights;
+            const commission = current_total * 0.10; // 10% Platform Fee
+
+            const [bookingInsert] = await db.query(
+                `INSERT INTO bookings (booking_reference, user_id, hotel_id, room_id, check_in_date, check_out_date, num_guests, total_nights, price_per_night, total_amount, commission_amount, status, payment_status, guest_name, guest_email, guest_phone) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', ?, ?, ?)`,
+                [unique_booking_ref, user_id, hotel_id, currentRoomId, check_in_date, check_out_date, guestsForThisRoom || 1, nights, targetRoom.base_price, current_total, commission, customer_info.name, customer_info.email, customer_info.phone]
+            );
+
+            bookingIds.push(bookingInsert.insertId);
+            
+            // Trigger 'Reservation Pending' emails immediately async for the FIRST room only, or aggregate. Let's aggregate for admin.
+            if (i === 0) {
+                // Safety check: ensure the record was verified by a fresh read
+                const [purchasedItemData] = await db.query(`
+                    SELECT b.*, h.name as hotel_name, h.email as hotel_email, r.room_number
+                    FROM bookings b
+                    JOIN hotels h ON b.hotel_id = h.id
+                    JOIN rooms r ON b.room_id = r.id
+                    WHERE b.id = ?
+                `, [bookingInsert.insertId]);
+
+                if (purchasedItemData.length > 0) {
+                    const bd = purchasedItemData[0];
+                    const emailData = {
+                        userName: bd.guest_name,
+                        hotelName: bd.hotel_name,
+                        roomNumber: `${numRooms} room(s) starting with ${bd.room_number}`,
+                        checkIn: new Date(bd.check_in_date).toLocaleDateString(),
+                        checkOut: new Date(bd.check_out_date).toLocaleDateString(),
+                        amount: expectedTotal,
+                        bookingReference: bd.booking_reference
+                    };
+
+                    emailService.sendBookingInitiated(bd.guest_email, emailData).catch(e => console.error('Guest init email failed:', e));
+                    if (bd.hotel_email) {
+                        emailService.sendAdminBookingInitiated(bd.hotel_email, emailData).catch(e => console.error('Admin init email failed:', e));
+                    }
+                }
+            }
+        }
+
+        const method = payment_method || 'khalti';
+
+        if (method === 'cash') {
+            for (const bkId of bookingIds) {
+                // Fetch booking details to get commission
+                const [bkData] = await db.query('SELECT hotel_id, commission_amount FROM bookings WHERE id = ?', [bkId]);
+                const { hotel_id, commission_amount } = bkData[0];
+
+                await db.query(`UPDATE bookings SET status = 'confirmed', payment_status = 'pending' WHERE id = ?`, [bkId]);
+                await db.query(`UPDATE rooms SET status = 'booked' WHERE id = (SELECT room_id FROM bookings WHERE id = ?)`, [bkId]);
+                
+                // DEDUCT commission from hotel balance (since hotel will collect 100% from guest)
+                await db.query('UPDATE hotels SET balance = balance - ? WHERE id = ?', [commission_amount, hotel_id]);
+            }
+            return res.json({
+                success: true,
+                method: 'cash',
+                message: 'Booking confirmed successfully. Please pay at the hotel. System fee has been deducted from your balance.'
+            });
+        }
 
         // 4. Khalti Protocol Handshake
         const paymentInit = await initializeKhaltiPayment({
-            amount: expectedTotal * 100, // Amount in paisa
-            purchase_order_id: bookingId.toString(),
-            purchase_order_name: `${targetRoom.type_name} Reservation at ${targetRoom.room_number}`,
+            amount: Math.round(expectedTotal * 100), // Amount in paisa, strictly rounded to int
+            purchase_order_id: bookingIds.join('-').substring(0, 100), // hyphen separated booking IDs
+            purchase_order_name: `${numRooms}x ${targetRoom.type_name}`.substring(0, 50),
             customer_info: {
-                name: customer_info.name || 'Guest',
-                email: customer_info.email || '',
-                phone: customer_info.phone || ''
+                name: (customer_info.name || 'Guest').substring(0, 50),
+                email: customer_info.email || 'guest@example.com',
+                phone: customer_info.phone || '9800000000'
             },
             return_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/callback`,
             website_url: process.env.FRONTEND_URL || 'http://localhost:3000',
         });
 
         // Record attempt in payments table (Store pidx specifically for refunds later)
-        await db.query(`INSERT INTO payments (booking_id, amount, payment_method, transaction_id, pidx, status) VALUES (?, ?, 'khalti', ?, ?, 'pending')`,
-            [bookingId, expectedTotal, paymentInit.pidx, paymentInit.pidx]
-        );
+        for (const bkId of bookingIds) {
+            await db.query(`INSERT INTO payments (booking_id, amount, payment_method, transaction_id, pidx, status) VALUES (?, ?, 'khalti', ?, ?, 'pending')`,
+                [bkId, targetRoom.base_price * nights, paymentInit.pidx, paymentInit.pidx]
+            );
+        }
 
         // 5. Send Payment Info: Matching user's preferred response structure
         res.json({
             success: true,
-            purchasedItemData: purchasedItemData[0],
+            method: 'khalti',
             payment: paymentInit,
         });
 
@@ -225,55 +319,63 @@ const verifyPayment = async (req, res) => {
 
         // status values: 'Completed', 'Pending', 'User canceled', 'Expired', 'Refunded'
         if (statusData.status === 'Completed') {
-            const booking_id = statusData.purchase_order_id;
+            const booking_ids = statusData.purchase_order_id.split('-').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
 
-            // 1. Mark as Paid
-            await db.query(
-                "UPDATE bookings SET status = 'confirmed', payment_status = 'paid' WHERE id = ?",
-                [booking_id]
-            );
+            for (const bId of booking_ids) {
+                // 1. Mark as Paid
+                await db.query(
+                    "UPDATE bookings SET status = 'confirmed', payment_status = 'paid' WHERE id = ?",
+                    [bId]
+                );
 
-            await db.query(
-                "UPDATE payments SET status = 'completed', transaction_id = ?, paid_at = CURRENT_TIMESTAMP WHERE booking_id = ?",
-                [statusData.transaction_id, booking_id]
-            );
+                await db.query(
+                    "UPDATE payments SET status = 'completed', transaction_id = ?, paid_at = CURRENT_TIMESTAMP WHERE booking_id = ?",
+                    [statusData.transaction_id, bId]
+                );
 
-            // 2. Fetch Deep Details for Email
-            const [fullDetails] = await db.query(`
-        SELECT
-        b.*,
-            h.name as hotel_name,
-            h.email as hotel_email,
-            r.room_number
-                FROM bookings b
-                JOIN hotels h ON b.hotel_id = h.id
-                JOIN rooms r ON b.room_id = r.id
-                WHERE b.id = ?
-            `, [booking_id]);
+                // 2. Fetch Deep Details for Email
+                const [fullDetails] = await db.query(`
+                    SELECT
+                    b.*,
+                        h.name as hotel_name,
+                        h.email as hotel_email,
+                        r.room_number
+                            FROM bookings b
+                            JOIN hotels h ON b.hotel_id = h.id
+                            JOIN rooms r ON b.room_id = r.id
+                            WHERE b.id = ?
+                        `, [bId]);
 
-            if (fullDetails.length > 0) {
-                const bd = fullDetails[0];
-                const emailData = {
-                    userName: bd.guest_name,
-                    hotelName: bd.hotel_name,
-                    roomNumber: bd.room_number,
-                    checkIn: new Date(bd.check_in_date).toLocaleDateString(),
-                    checkOut: new Date(bd.check_out_date).toLocaleDateString(),
-                    amount: bd.total_amount,
-                    bookingReference: bd.booking_reference
-                };
+                if (fullDetails.length > 0) {
+                    const bd = fullDetails[0];
+                    const emailData = {
+                        userName: bd.guest_name,
+                        hotelName: bd.hotel_name,
+                        roomNumber: bd.room_number,
+                        checkIn: new Date(bd.check_in_date).toLocaleDateString(),
+                        checkOut: new Date(bd.check_out_date).toLocaleDateString(),
+                        amount: bd.total_amount,
+                        bookingReference: bd.booking_reference
+                    };
 
-                // Send Guest Confirmation
-                console.log(`Sending guest email to: ${bd.guest_email} `);
-                emailService.sendBookingConfirmation(bd.guest_email, emailData);
+                    // Send Guest Confirmation (one email per room)
+                    console.log(`Sending guest email to: ${bd.guest_email} `);
+                    emailService.sendBookingConfirmation(bd.guest_email, emailData);
 
-                // Send Admin Notification
-                console.log(`Sending admin alert to: ${bd.hotel_email} `);
-                emailService.sendAdminBookingNotification(bd.hotel_email, emailData);
+                    // Send Admin Notification
+                    console.log(`Sending admin alert to: ${bd.hotel_email} `);
+                    emailService.sendAdminBookingNotification(bd.hotel_email, emailData);
 
-                // 3. Set Room status is managed by bookings table
-                // No need to set status = 'occupied' permanently anymore
+                    // 3. Mark the specified room as booked
+                    await db.query("UPDATE rooms SET status = 'booked' WHERE id = ?", [bd.room_id]);
+
+                    // 4. CREDIT hotel balance (Total - Commission) since Platform collected the money
+                    const netAmount = Number(bd.total_amount) - Number(bd.commission_amount || 0);
+                    await db.query('UPDATE hotels SET balance = balance + ? WHERE id = ?', [netAmount, bd.hotel_id]);
+                }
             }
+
+            // Success handled above inside loop
 
             return res.json({
                 success: true,
@@ -477,6 +579,39 @@ const manualConfirmBooking = async (req, res) => {
             [bookingId]
         );
 
+        // Update room status to booked
+        const [bookingData] = await db.query("SELECT room_id FROM bookings WHERE id = ?", [bookingId]);
+        if (bookingData.length > 0) {
+            await db.query("UPDATE rooms SET status = 'booked' WHERE id = ?", [bookingData[0].room_id]);
+        }
+
+        // Fetch deep details for sending confirmation email on manual verify
+        const [fullDetails] = await db.query(`
+            SELECT b.*, h.name as hotel_name, h.email as hotel_email, r.room_number
+            FROM bookings b
+            JOIN hotels h ON b.hotel_id = h.id
+            JOIN rooms r ON b.room_id = r.id
+            WHERE b.id = ?
+        `, [bookingId]);
+
+        if (fullDetails.length > 0) {
+            const bd = fullDetails[0];
+            const emailData = {
+                userName: bd.guest_name,
+                hotelName: bd.hotel_name,
+                roomNumber: bd.room_number,
+                checkIn: new Date(bd.check_in_date).toLocaleDateString(),
+                checkOut: new Date(bd.check_out_date).toLocaleDateString(),
+                amount: bd.total_amount,
+                bookingReference: bd.booking_reference
+            };
+
+            emailService.sendBookingConfirmation(bd.guest_email, emailData).catch(e => console.error('Guest confirm email failed', e));
+            if (bd.hotel_email) {
+                emailService.sendAdminBookingNotification(bd.hotel_email, emailData).catch(e => console.error('Admin alert failed', e));
+            }
+        }
+
         return res.json({
             success: true,
             message: 'Booking confirmed manually.'
@@ -534,6 +669,148 @@ const checkOutBooking = async (req, res) => {
     }
 };
 
+/**
+ * QR-BASED SECURE CHECK-IN SYSTEM
+ * ------------------------------
+ * logic for token signing, validation, and auto-checkin
+ */
+
+const generateQRToken = async (req, res) => {
+    try {
+        const { bookingId } = req.params;
+        const [bookings] = await db.query('SELECT id, booking_reference, hotel_id, user_id FROM bookings WHERE id = ?', [bookingId]);
+
+        if (bookings.length === 0) return res.status(404).json({ success: false, message: 'Booking record not found' });
+
+        const booking = bookings[0];
+
+        // Security: only the guest who booked or an admin can generate the token
+        if (req.user.role === 'guest' && req.user.id != booking.user_id) {
+            return res.status(403).json({ success: false, message: 'Access denied' });
+        }
+
+        // Generate signed JWT for the QR (expires in 48 hours to prevent long-term reuse)
+        const token = jwt.sign({
+            bookingId: booking.id,
+            ref: booking.booking_reference,
+            hotelId: booking.hotel_id,
+            timestamp: Date.now()
+        }, process.env.JWT_SECRET, { expiresIn: '48h' });
+
+        res.json({ success: true, qrToken: token });
+    } catch (error) {
+        console.error("QR Generation Error:", error);
+        res.status(500).json({ success: false, message: 'Encryption service failure', error: error.message });
+    }
+};
+
+const scanCheckIn = async (req, res) => {
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
+        const { qrToken } = req.body;
+        if (!qrToken) return res.status(400).json({ success: false, message: 'QR signature required' });
+
+        let decoded;
+        try {
+            decoded = jwt.verify(qrToken, process.env.JWT_SECRET);
+        } catch (e) {
+            return res.status(400).json({ success: false, message: 'INVALID_QR: Signature tampered or expired' });
+        }
+
+        const { bookingId, hotelId } = decoded;
+
+        // Fetch deep booking details
+        const [rows] = await connection.query(`
+            SELECT b.*, h.name as hotel_name, u.full_name as guest_name, r.room_number, rt.name as room_type
+            FROM bookings b
+            JOIN hotels h ON b.hotel_id = h.id
+            JOIN rooms r ON b.room_id = r.id
+            JOIN room_types rt ON r.room_type_id = rt.id
+            LEFT JOIN users u ON b.user_id = u.id
+            WHERE b.id = ?
+        `, [bookingId]);
+
+        if (rows.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, message: 'BOOKING_MISSING: Reference not found' });
+        }
+
+        const booking = rows[0];
+
+        // --- VALIDATION LAYERS ---
+
+        // 1. Hotel Scoped Security
+        if (req.user.role === 'admin' && req.user.hotel_id !== booking.hotel_id) {
+            await connection.query('INSERT INTO scan_logs (booking_id, hotel_id, scanned_by, status, error_message) VALUES (?, ?, ?, ?, ?)',
+                [bookingId, booking.hotel_id, req.user.id, 'failed_wrong_hotel', 'Attempted scan at wrong property']);
+            await connection.commit();
+            return res.status(403).json({ success: false, message: 'WRONG_PROPERTY: This booking belongs to another hotel' });
+        }
+
+        // 2. Status check
+        if (booking.status === 'checked_in') {
+            await connection.query('INSERT INTO scan_logs (booking_id, hotel_id, scanned_by, status, error_message) VALUES (?, ?, ?, ?, ?)',
+                [bookingId, booking.hotel_id, req.user.id, 'failed_already_checked_in', 'Guest already checked in']);
+            await connection.commit();
+            return res.status(400).json({ success: false, message: 'ALREADY_ACTIVE: Guest has already been checked in' });
+        }
+
+        if (booking.status === 'cancelled') {
+            await connection.query('INSERT INTO scan_logs (booking_id, hotel_id, scanned_by, status, error_message) VALUES (?, ?, ?, ?, ?)',
+                [bookingId, booking.hotel_id, req.user.id, 'failed_cancelled', 'Booking cancelled']);
+            await connection.commit();
+            return res.status(400).json({ success: false, message: 'NOT_VALID: This booking was cancelled or refunded' });
+        }
+
+        // 3. Time Window Validation (Prevent arrival too early)
+        const today = new Date().toISOString().split('T')[0];
+        const checkInDate = new Date(booking.check_in_date).toISOString().split('T')[0];
+        if (today < checkInDate) {
+            return res.status(400).json({ success: false, message: `EARLY_ARRIVAL: Check-in only allowed from ${checkInDate}` });
+        }
+
+        // --- EXECUTION ---
+
+        // 4. Update Booking Status
+        await connection.query("UPDATE bookings SET status = 'checked_in' WHERE id = ?", [bookingId]);
+
+        // 5. Update Room Status
+        await connection.query("UPDATE rooms SET status = 'occupied' WHERE id = ?", [booking.room_id]);
+
+        // 6. Log successful audit trail
+        await connection.query('INSERT INTO scan_logs (booking_id, hotel_id, scanned_by, status) VALUES (?, ?, ?, ?)',
+            [bookingId, booking.hotel_id, req.user.id, 'success']);
+
+        await connection.commit();
+
+        res.json({
+            success: true,
+            message: 'CHECKIN_COMPLETE: Guest successfully processed',
+            guest: {
+                name: booking.guest_name || booking.full_name,
+                email: booking.guest_email,
+                phone: booking.guest_phone
+            },
+            room: {
+                number: booking.room_number,
+                type: booking.room_type
+            },
+            booking: {
+                reference: booking.booking_reference,
+                stay: `${new Date(booking.check_in_date).toLocaleDateString()} to ${new Date(booking.check_out_date).toLocaleDateString()}`
+            }
+        });
+
+    } catch (error) {
+        await connection.rollback();
+        console.error('Scan check-in protocol error:', error);
+        res.status(500).json({ success: false, message: 'Internal validation failure' });
+    } finally {
+        connection.release();
+    }
+};
+
 module.exports = {
     initiatePayment,
     verifyPayment,
@@ -541,5 +818,7 @@ module.exports = {
     cancelBooking,
     manualConfirmBooking,
     checkInBooking,
-    checkOutBooking
+    checkOutBooking,
+    generateQRToken,
+    scanCheckIn
 };
