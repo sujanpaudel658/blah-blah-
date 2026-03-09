@@ -55,10 +55,10 @@ exports.sendWelcomeEmail = async (email, userName) => {
             <h2 style="color: #F6C768;">Welcome, ${userName}!</h2>
             <p>Your account has been verified and is now active. You can start using Nepal Stays to manage your hotel bookings.</p>
             <ul style="margin-top: 20px; line-height: 1.8;">
-              <li>📅 Browse available hotels</li>
-              <li>🏨 Make reservations easily</li>
-              <li>💳 Manage your bookings</li>
-              <li>📞 24/7 customer support</li>
+              <li> Browse available hotels</li>
+              <li> Make reservations easily</li>
+              <li> Manage your bookings</li>
+              <li> 24/7 customer support</li>
             </ul>
             <p style="margin-top: 30px;">
               <a href="http://localhost:3000/guest/dashboard" style="background-color: #6C63FF; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">

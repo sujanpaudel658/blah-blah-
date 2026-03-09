@@ -23,6 +23,8 @@ app.use('/api/rooms', require('./routes/roomRoutes'));
 app.use('/api/payments', require('./routes/paymentRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/reviews', require('./routes/reviewRoutes'));
+app.use('/api/chatbot', require('./routes/chatbotRoutes'));
+
 
 // Health check
 app.get('/', (req, res) => res.json({ message: 'Hotel Management API is running' }));
