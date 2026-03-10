@@ -20,7 +20,7 @@ exports.getAllHotels = async (req, res) => {
 // Create new hotel with admin
 exports.createHotel = async (req, res) => {
   try {
-    const { name, address, city, country, phone, email, description, image, latitude, longitude, adminName, adminEmail, adminPassword } = req.body;
+    const { name, address, city, district, country, phone, email, description, image, latitude, longitude, adminName, adminEmail, adminPassword } = req.body;
 
     if (!name || !city || !country) {
       return res.status(400).json({ success: false, message: 'Hotel name, city, and country are required' });
@@ -31,11 +31,12 @@ exports.createHotel = async (req, res) => {
 
     // Create hotel
     const [result] = await db.query(
-      'INSERT INTO hotels (name, address, city, country, phone, email, description, image, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO hotels (name, address, city, district, country, phone, email, description, image, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         name,
         address,
         city,
+        district || '',
         country,
         phone,
         email,
@@ -88,7 +89,7 @@ exports.createHotel = async (req, res) => {
 exports.updateHotel = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, address, city, country, phone, email, description, image, latitude, longitude } = req.body;
+    const { name, address, city, district, country, phone, email, description, image, latitude, longitude } = req.body;
 
     if (!id) {
       return res.status(400).json({ success: false, message: 'Hotel ID is required' });
@@ -98,11 +99,12 @@ exports.updateHotel = async (req, res) => {
     }
 
     const [result] = await db.query(
-      'UPDATE hotels SET name = ?, address = ?, city = ?, country = ?, phone = ?, email = ?, description = ?, image = ?, latitude = ?, longitude = ? WHERE id = ?',
+      'UPDATE hotels SET name = ?, address = ?, city = ?, district = ?, country = ?, phone = ?, email = ?, description = ?, image = ?, latitude = ?, longitude = ? WHERE id = ?',
       [
         name,
         address,
         city,
+        district || '',
         country,
         phone,
         email,
@@ -257,5 +259,233 @@ exports.verifyHotel = async (req, res) => {
     handleError(res, error, 'Failed to verify hotel');
   } finally {
     connection.release();
+  }
+};
+
+// Get system-wide analytics for superadmin dashboard
+exports.getSystemAnalytics = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    let dateFilter = '';
+    let dateFilterJoin = '';
+    const params = [];
+    const paramsJoin = [];
+
+    if (startDate && endDate) {
+      dateFilter = ' WHERE created_at >= ? AND created_at <= DATE_ADD(?, INTERVAL 1 DAY)';
+      dateFilterJoin = ' AND b.created_at >= ? AND b.created_at <= DATE_ADD(?, INTERVAL 1 DAY)';
+      params.push(startDate, endDate);
+      paramsJoin.push(startDate, endDate);
+    }
+
+    // 1. Overall booking stats
+    const [bookingStats] = await db.query(`
+      SELECT 
+        COUNT(*) as total_bookings,
+        SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN status = 'checked_in' THEN 1 ELSE 0 END) as checked_in,
+        SUM(CASE WHEN status = 'checked_out' THEN 1 ELSE 0 END) as checked_out,
+        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
+        SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END) as total_revenue,
+        SUM(CASE WHEN payment_status = 'paid' THEN commission_amount ELSE 0 END) as total_commission,
+        SUM(CASE WHEN payment_status = 'refunded' THEN total_amount ELSE 0 END) as total_refunded,
+        SUM(total_amount) as gross_total
+      FROM bookings${dateFilter}
+    `, params);
+
+    // 2. Per-hotel revenue breakdown
+    const [hotelRevenue] = await db.query(`
+      SELECT 
+        h.id, h.name, h.city, h.balance,
+        COUNT(b.id) as total_bookings,
+        SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_amount ELSE 0 END) as revenue,
+        SUM(CASE WHEN b.payment_status = 'paid' THEN b.commission_amount ELSE 0 END) as commission,
+        SUM(CASE WHEN b.status = 'confirmed' OR b.status = 'checked_in' THEN 1 ELSE 0 END) as active_bookings
+      FROM hotels h
+      LEFT JOIN bookings b ON h.id = b.hotel_id${dateFilterJoin}
+      GROUP BY h.id
+      ORDER BY revenue DESC
+    `, paramsJoin);
+
+    // 3. Monthly revenue trend
+    const trendFilter = (startDate && endDate)
+      ? ' WHERE created_at >= ? AND created_at <= DATE_ADD(?, INTERVAL 1 DAY)'
+      : ' WHERE created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)';
+    const trendParams = (startDate && endDate) ? [startDate, endDate] : [];
+
+    const [monthlyTrend] = await db.query(`
+      SELECT 
+        DATE_FORMAT(created_at, '%Y-%m') as month,
+        COUNT(*) as bookings,
+        SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END) as revenue,
+        SUM(CASE WHEN payment_status = 'paid' THEN commission_amount ELSE 0 END) as commission
+      FROM bookings${trendFilter}
+      GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+      ORDER BY month ASC
+    `, trendParams);
+
+    // 4. Recent bookings
+    const recentFilter = (startDate && endDate)
+      ? ' WHERE b.created_at >= ? AND b.created_at <= DATE_ADD(?, INTERVAL 1 DAY)'
+      : '';
+    const recentParams = (startDate && endDate) ? [startDate, endDate] : [];
+
+    const [recentBookings] = await db.query(`
+      SELECT b.*, h.name as hotel_name, r.room_number, rt.name as room_type
+      FROM bookings b
+      JOIN hotels h ON b.hotel_id = h.id
+      JOIN rooms r ON b.room_id = r.id
+      JOIN room_types rt ON r.room_type_id = rt.id${recentFilter}
+      ORDER BY b.created_at DESC
+      LIMIT 50
+    `, recentParams);
+
+    res.json({
+      success: true,
+      analytics: {
+        overview: bookingStats[0],
+        hotelRevenue,
+        monthlyTrend,
+        recentBookings
+      }
+    });
+  } catch (error) {
+    handleError(res, error, 'Failed to fetch system analytics');
+  }
+};
+
+// Get all transaction/payment logs
+exports.getTransactionLogs = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    let dateFilter = '';
+    let summaryDateFilter = '';
+    const params = [];
+    const summaryParams = [];
+
+    if (startDate && endDate) {
+      dateFilter = ' AND p.created_at >= ? AND p.created_at <= DATE_ADD(?, INTERVAL 1 DAY)';
+      summaryDateFilter = ' WHERE created_at >= ? AND created_at <= DATE_ADD(?, INTERVAL 1 DAY)';
+      params.push(startDate, endDate);
+      summaryParams.push(startDate, endDate);
+    }
+
+    const [transactions] = await db.query(`
+      SELECT 
+        p.id as payment_id,
+        p.booking_id,
+        p.amount,
+        p.payment_method,
+        p.status as payment_status,
+        p.transaction_id,
+        p.pidx,
+        p.paid_at,
+        p.notes,
+        p.created_at as payment_date,
+        b.booking_reference,
+        b.guest_name,
+        b.guest_email,
+        b.status as booking_status,
+        b.check_in_date,
+        b.check_out_date,
+        b.total_nights,
+        b.commission_amount,
+        h.name as hotel_name,
+        h.city as hotel_city
+      FROM payments p
+      JOIN bookings b ON p.booking_id = b.id
+      JOIN hotels h ON b.hotel_id = h.id
+      WHERE 1=1${dateFilter}
+      ORDER BY p.created_at DESC
+      LIMIT 200
+    `, params);
+
+    // Summary counts (also filtered)
+    const [summary] = await db.query(`
+      SELECT 
+        COUNT(p.id) as total,
+        SUM(CASE WHEN p.status = 'completed' THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN p.status = 'pending' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN p.status = 'refunded' THEN 1 ELSE 0 END) as refunded,
+        SUM(CASE WHEN p.status = 'completed' THEN p.amount ELSE 0 END) as total_collected,
+        SUM(CASE WHEN p.status = 'completed' THEN b.commission_amount ELSE 0 END) as total_commission,
+        SUM(CASE WHEN p.status = 'refunded' THEN p.amount ELSE 0 END) as total_refunded
+      FROM payments p
+      JOIN bookings b ON p.booking_id = b.id
+      ${summaryDateFilter.replace('WHERE', 'AND').replace('created_at', 'p.created_at')}
+    `, summaryParams);
+
+    res.json({
+      success: true,
+      transactions,
+      summary: summary[0]
+    });
+  } catch (error) {
+    handleError(res, error, 'Failed to fetch transaction logs');
+  }
+};
+
+// Get full system report data for PDF generation
+exports.getSystemReport = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    let dateFilter = '';
+    let dateFilterJoin = '';
+    const params = [];
+    const paramsJoin = [];
+
+    if (startDate && endDate) {
+      dateFilter = ' WHERE created_at >= ? AND created_at <= DATE_ADD(?, INTERVAL 1 DAY)';
+      dateFilterJoin = ' AND b.created_at >= ? AND b.created_at <= DATE_ADD(?, INTERVAL 1 DAY)';
+      params.push(startDate, endDate);
+      paramsJoin.push(startDate, endDate);
+    }
+
+    const [hotels] = await db.query('SELECT id, name, city, country, created_at FROM hotels ORDER BY name');
+    const [admins] = await db.query(`
+      SELECT u.full_name, u.email, h.name as hotel_name 
+      FROM users u LEFT JOIN hotels h ON u.hotel_id = h.id 
+      WHERE u.role = 'admin'
+    `);
+    const [guests] = await db.query(`SELECT COUNT(*) as count FROM users WHERE role = 'guest'`);
+    
+    const [bookingStats] = await db.query(`
+      SELECT 
+        COUNT(*) as total_bookings,
+        SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END) as total_revenue,
+        SUM(CASE WHEN payment_status = 'paid' THEN commission_amount ELSE 0 END) as total_commission,
+        SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
+        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
+        SUM(CASE WHEN status = 'checked_out' THEN 1 ELSE 0 END) as completed
+      FROM bookings${dateFilter}
+    `, params);
+
+    const [hotelPerformance] = await db.query(`
+      SELECT 
+        h.name, h.city,
+        COUNT(b.id) as bookings,
+        SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_amount ELSE 0 END) as revenue,
+        SUM(CASE WHEN b.payment_status = 'paid' THEN b.commission_amount ELSE 0 END) as commission
+      FROM hotels h
+      LEFT JOIN bookings b ON h.id = b.hotel_id${dateFilterJoin}
+      GROUP BY h.id
+      ORDER BY revenue DESC
+    `, paramsJoin);
+
+    res.json({
+      success: true,
+      report: {
+        generatedAt: new Date().toISOString(),
+        dateRange: (startDate && endDate) ? { startDate, endDate } : null,
+        hotels,
+        admins,
+        guestCount: guests[0].count,
+        bookingStats: bookingStats[0],
+        hotelPerformance
+      }
+    });
+  } catch (error) {
+    handleError(res, error, 'Failed to generate system report');
   }
 };
