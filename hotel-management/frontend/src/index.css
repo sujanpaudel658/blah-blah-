@@ -2,23 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap');
 
 :root {
-  --bg-color: #F5F3EF;
-  --primary-navy: #1B2B41;
-  --accent-gold: #B88E2F;
-  --text-charcoal: #2D3748;
-  --border-color: #E2E2E2;
+  /* ─── Core Palette ─── */
+  --cream:        #FAF8F5;
+  --ivory:        #F2EDE7;
+  --navy:         #1A2332;
+  --navy-light:   #263345;
+  --gold:         #C4993E;
+  --gold-hover:   #AE872E;
+  --gold-muted:   #D4B06A;
+  --charcoal:     #2C3E50;
+  --warm-gray:    #6B7B8D;
+  --light-gray:   #D8D4CE;
+  --border:       #E8E4DE;
+  --white:        #FFFFFF;
 
-  --status-emerald: #108548;
-  --status-emerald-bg: #E7F3ED;
-  --status-amber: #A36B00;
-  --status-amber-bg: #FFF8E6;
-  --status-red: #B91C1C;
-  --status-red-bg: #FEE2E2;
-  --status-slate: #475569;
-  --status-slate-bg: #F1F5F9;
+  /* ─── Status Colors ─── */
+  --success:      #2D8659;
+  --success-bg:   #EBF5F0;
+  --warning:      #C27A1A;
+  --warning-bg:   #FFF7EB;
+  --danger:       #C0392B;
+  --danger-bg:    #FDEDED;
+  --muted:        #6B7B8D;
+  --muted-bg:     #F4F3F0;
 }
 
 * {
@@ -32,71 +41,81 @@ html {
 }
 
 body {
-  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: var(--bg-color);
-  color: var(--text-charcoal);
-  font-size: 14px;
+  background-color: var(--cream);
+  color: var(--charcoal);
+  font-size: 15px;
+  line-height: 1.6;
 }
 
-/* Scrollbar Style - Functional & Practical */
+/* ─── Typography ─── */
+.font-serif {
+  font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+}
+
+/* ─── Scrollbar ─── */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: #F1F1F1;
+  background: transparent;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #BCBCBC;
-  border-radius: 0;
+  background: var(--light-gray);
+  border-radius: 10px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #A0A0A0;
+  background: var(--warm-gray);
 }
 
-/* Operational Utilities */
+/* ─── Admin Card ─── */
 .admin-card {
-  background: white;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 .admin-label {
   font-size: 11px;
-  font-weight: 700;
-  color: #6B7280;
+  font-weight: 600;
+  color: var(--warm-gray);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 4px;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
   display: block;
 }
 
 .admin-input {
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   font-size: 14px;
-  color: var(--text-charcoal);
+  font-family: inherit;
+  color: var(--charcoal);
+  background: var(--white);
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .admin-input:focus {
-  border-color: var(--primary-navy);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(196, 153, 62, 0.12);
 }
 
 .admin-button {
-  padding: 8px 16px;
-  border-radius: 4px;
+  padding: 10px 20px;
+  border-radius: 8px;
   font-weight: 600;
   font-size: 13px;
+  font-family: inherit;
   cursor: pointer;
   transition: all 0.2s;
   display: inline-flex;
@@ -106,40 +125,41 @@ body {
 }
 
 .admin-button-primary {
-  background-color: var(--primary-navy);
-  color: white;
+  background-color: var(--navy);
+  color: var(--white);
   border: none;
 }
 
 .admin-button-primary:hover {
-  background-color: #2D4361;
+  background-color: var(--navy-light);
+  box-shadow: 0 4px 12px rgba(26, 35, 50, 0.15);
 }
 
 .admin-button-secondary {
-  background-color: white;
-  color: var(--text-charcoal);
-  border: 1px solid var(--border-color);
+  background-color: var(--white);
+  color: var(--charcoal);
+  border: 1px solid var(--border);
 }
 
 .admin-button-secondary:hover {
-  background-color: #F9FAFB;
-  border-color: #D1D5DB;
+  background-color: var(--cream);
+  border-color: var(--light-gray);
 }
 
 .status-badge {
-  padding: 4px 8px;
-  border-radius: 2px;
+  padding: 4px 10px;
+  border-radius: 6px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
 }
 
-/* Tables */
+/* ─── Tables ─── */
 .admin-table-container {
   overflow-x: auto;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 
 .admin-table {
@@ -149,41 +169,93 @@ body {
 }
 
 .admin-table th {
-  background-color: #F8F9FA;
-  padding: 12px 16px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #4B5563;
+  background-color: var(--cream);
+  padding: 14px 18px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--warm-gray);
   text-transform: uppercase;
-  border-bottom: 2px solid var(--border-color);
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
 }
 
 .admin-table td {
-  padding: 12px 16px;
-  border-bottom: 1px solid #F1F1F1;
+  padding: 14px 18px;
+  border-bottom: 1px solid #F4F3F0;
   font-size: 13px;
 }
 
 .admin-table tr:hover {
-  background-color: #FAFAFA;
+  background-color: #FDFCFA;
 }
 
-/* Form Groups */
+/* ─── Forms ─── */
 .form-group {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
-/* Animations - Minimal and purposeful */
+/* ─── Animations ─── */
 .fade-in {
-  animation: fadeIn 0.3s ease-in;
+  animation: fadeIn 0.3s ease-out;
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
-  to {
-    opacity: 1;
-  }
+/* ─── Leaflet Routing Styling ─── */
+.premium-nav-panel {
+  background: var(--white) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12) !important;
+  width: 320px !important;
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: 'DM Sans', sans-serif !important;
+  padding: 16px !important;
+  margin: 10px !important;
+  z-index: 1000;
+}
+
+.premium-nav-panel h2 {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--navy) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  border-bottom: 2px solid var(--gold) !important;
+  padding-bottom: 8px !important;
+  margin-bottom: 12px !important;
+}
+
+.premium-nav-panel h3 {
+  font-size: 12px !important;
+  color: var(--warm-gray) !important;
+  margin-top: 10px !important;
+}
+
+.leaflet-routing-alt {
+  max-height: 350px !important;
+  border: none !important;
+}
+
+.leaflet-routing-alt tr:hover {
+  background-color: var(--cream) !important;
+}
+
+.leaflet-routing-instruction-text {
+  font-size: 13px !important;
+  color: var(--charcoal) !important;
+  line-height: 1.5 !important;
+}
+
+.premium-nav-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.premium-nav-panel::-webkit-scrollbar-thumb {
+  background: var(--gold);
+  border-radius: 10px;
 }

@@ -4,7 +4,7 @@ import L from 'leaflet';
 import 'leaflet-routing-machine';
 
 // Component to handle map clicks and draggability
-const LocationMarker = ({ isEditing, setLatitude, setLongitude, latitude, longitude }) => {
+const LocationMarker = ({ isEditing, setLatitude, setLongitude, latitude, longitude, updateCityFromCoords }) => {
     const markerRef = React.useRef(null);
 
     const eventHandlers = React.useMemo(
@@ -15,10 +15,11 @@ const LocationMarker = ({ isEditing, setLatitude, setLongitude, latitude, longit
                     const latLng = marker.getLatLng();
                     setLatitude(latLng.lat);
                     setLongitude(latLng.lng);
+                    updateCityFromCoords(latLng.lat, latLng.lng);
                 }
             },
         }),
-        [setLatitude, setLongitude]
+        [setLatitude, setLongitude, updateCityFromCoords]
     );
 
     useMapEvents({
@@ -26,6 +27,7 @@ const LocationMarker = ({ isEditing, setLatitude, setLongitude, latitude, longit
             if (!isEditing) return;
             setLatitude(e.latlng.lat);
             setLongitude(e.latlng.lng);
+            updateCityFromCoords(e.latlng.lat, e.latlng.lng);
         },
     });
 
@@ -54,11 +56,32 @@ const MapSection = ({
     setLatitude,
     longitude,
     setLongitude,
+    city,
+    setCity,
     isEditing,
     userLocation,
     getUserLocation,
     showDirections
 }) => {
+    // Reverse Geocoding: Coordinate -> City Name
+    const updateCityFromCoords = async (lat, lon) => {
+        try {
+            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+            const data = await response.json();
+            if (data && data.address) {
+                // Common OSM city/location labels
+                const cityName = data.address.city ||
+                    data.address.town ||
+                    data.address.village ||
+                    data.address.municipality ||
+                    data.address.suburb ||
+                    'Nepal';
+                setCity(cityName);
+            }
+        } catch (error) {
+            console.error('Sync failed:', error);
+        }
+    };
     return (
         <div className="admin-card overflow-hidden bg-white flex flex-col lg:flex-row h-[500px]">
             {/* Map Area - 60% */}
@@ -79,13 +102,14 @@ const MapSection = ({
                         setLongitude={setLongitude}
                         latitude={latitude}
                         longitude={longitude}
+                        updateCityFromCoords={updateCityFromCoords}
                     />
                     <MapRecenter center={[latitude, longitude]} showDirections={showDirections} />
                 </MapContainer>
 
                 {isEditing && (
                     <div className="absolute top-4 left-4 z-[401] bg-[#1B2B41] text-white text-[10px] font-bold px-3 py-1.5 rounded-sm shadow-md uppercase tracking-wider">
-                        MANUAL OVERRIDE: CLICK TO PIN
+                        MANUAL OVERRIDE: CLICK OR DRAG TO PIN
                     </div>
                 )}
             </div>
@@ -106,26 +130,38 @@ const MapSection = ({
 
                         <div className="space-y-4">
                             <div className="form-group mb-0">
-                                <label className="text-[10px] font-bold text-[#94A3B8] uppercase block mb-1">LATITUDE ACCURACY</label>
+                                <label className="text-[10px] font-bold text-[#94A3B8] uppercase block mb-1">CITY / DISTRICT</label>
                                 <input
-                                    type="number"
-                                    step="any"
-                                    value={latitude}
-                                    onChange={(e) => setLatitude(parseFloat(e.target.value) || 0)}
-                                    disabled={!isEditing}
-                                    className="admin-input bg-white"
+                                    type="text"
+                                    value={city}
+                                    readOnly
+                                    className="admin-input bg-[#F1F5F9] font-bold border-none"
                                 />
+                                <p className="text-[10px] text-[#94A3B8] mt-1 italic">Automatically updated via map pin</p>
                             </div>
-                            <div className="form-group mb-0">
-                                <label className="text-[10px] font-bold text-[#94A3B8] uppercase block mb-1">LONGITUDE ACCURACY</label>
-                                <input
-                                    type="number"
-                                    step="any"
-                                    value={longitude}
-                                    onChange={(e) => setLongitude(parseFloat(e.target.value) || 0)}
-                                    disabled={!isEditing}
-                                    className="admin-input bg-white"
-                                />
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="form-group mb-0">
+                                    <label className="text-[10px] font-bold text-[#94A3B8] uppercase block mb-1">LATITUDE</label>
+                                    <input
+                                        type="number"
+                                        step="any"
+                                        value={latitude}
+                                        onChange={(e) => setLatitude(parseFloat(e.target.value) || 0)}
+                                        disabled={!isEditing}
+                                        className="admin-input bg-white"
+                                    />
+                                </div>
+                                <div className="form-group mb-0">
+                                    <label className="text-[10px] font-bold text-[#94A3B8] uppercase block mb-1">LONGITUDE</label>
+                                    <input
+                                        type="number"
+                                        step="any"
+                                        value={longitude}
+                                        onChange={(e) => setLongitude(parseFloat(e.target.value) || 0)}
+                                        disabled={!isEditing}
+                                        className="admin-input bg-white"
+                                    />
+                                </div>
                             </div>
                         </div>
                     </div>

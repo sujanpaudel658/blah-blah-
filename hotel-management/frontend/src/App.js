@@ -12,6 +12,7 @@ import ResetPassword from './pages/ResetPassword';
 import Home from './pages/Home';
 import KhaltiCallback from './pages/KhaltiCallback';
 import Settings from './pages/Settings';
+import ChatBot from './components/ChatBot';
 
 import Bookings from './pages/Bookings';
 
@@ -20,10 +21,14 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Home />} />
+        {/* ... existing routes ... */}
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/superadmin/dashboard" element={<SuperAdminDashboard />} />
+        <Route path="/superadmin/registry" element={<SuperAdminDashboard />} />
+        <Route path="/superadmin/audits" element={<SuperAdminDashboard />} />
+        <Route path="/superadmin/settings" element={<SuperAdminDashboard />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/admin/bookings" element={<Bookings />} />
         <Route path="/guest/dashboard" element={<UserDashboard />} />
@@ -34,8 +39,10 @@ function App() {
         <Route path="/payment/callback" element={<KhaltiCallback />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
+      <ChatBot />
     </Router>
   );
 }
+
 
 export default App;
