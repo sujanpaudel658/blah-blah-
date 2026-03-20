@@ -20,6 +20,7 @@ const AdminDashboard = () => {
   const [description, setDescription] = useState('');
   const [latitude, setLatitude] = useState(27.7172);
   const [longitude, setLongitude] = useState(85.3240);
+  const [city, setCity] = useState('');
   const [images, setImages] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -84,6 +85,7 @@ const AdminDashboard = () => {
       setDescription(h.description || '');
       setLatitude(parseFloat(h.latitude) || 27.7172);
       setLongitude(parseFloat(h.longitude) || 85.3240);
+      setCity(h.city || '');
 
       const parsedImages = parseHotelImages(h.image);
       setImagePreviews(parsedImages.map(img => getImageUrl(img)));
@@ -183,6 +185,7 @@ const AdminDashboard = () => {
         description,
         latitude,
         longitude,
+        city,
         image: JSON.stringify(imagePreviews)
       };
 
@@ -354,6 +357,8 @@ const AdminDashboard = () => {
               setLatitude={setLatitude}
               longitude={longitude}
               setLongitude={setLongitude}
+              city={city}
+              setCity={setCity}
               isEditing={isEditing}
               userLocation={userLocation}
               getUserLocation={getUserLocation}

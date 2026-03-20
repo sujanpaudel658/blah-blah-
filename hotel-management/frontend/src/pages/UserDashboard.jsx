@@ -40,6 +40,8 @@ const UserDashboard = () => {
   const [isMapFullScreen, setIsMapFullScreen] = useState(false);
   const [rooms, setRooms] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState(null);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+
 
   // -- RESERVATION PARAMETERS --
   const [isReserving, setIsReserving] = useState(false);
@@ -55,6 +57,19 @@ const UserDashboard = () => {
   const [showBillModal, setShowBillModal] = useState(false);
   const [selectedPass, setSelectedPass] = useState(null);
   const [selectedBill, setSelectedBill] = useState(null);
+
+  // -- HOTEL REQUEST STATE --
+  const [showRequestHotelModal, setShowRequestHotelModal] = useState(false);
+  const [requestHotelForm, setRequestHotelForm] = useState({
+    name: '',
+    address: '',
+    city: '',
+    country: '',
+    phone: '',
+    email: '',
+    description: '',
+    image: ''
+  });
 
   // -- REVIEW & FEEDBACK STATE --
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -171,6 +186,43 @@ const UserDashboard = () => {
     }
   };
 
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        // Simple single image support for now, stored as JSON array string to match backend expectation if needed
+        // But backend createHotel expects 'image' field.
+        // Let's store as base64 string in array for consistency with other parts if they use arrays.
+        // Or just the base64 string if the backend handles it.
+        // Looking at backend: createHotel takes 'image' and stores it.
+        // UserDashboard frontend parses it: try { hotelImages = JSON.parse(hotel.image); }
+        // So we should stringify an array.
+        const base64 = reader.result;
+        setRequestHotelForm({ ...requestHotelForm, image: JSON.stringify([base64]) });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRequestHotelSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('http://localhost:5000/api/hotels/request', requestHotelForm, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert('Hotel request submitted! Waiting for Super Admin verification.');
+      setShowRequestHotelModal(false);
+      setRequestHotelForm({
+        name: '', address: '', city: '', country: '',
+        phone: '', email: '', description: '', image: ''
+      });
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to submit request');
+    }
+  };
+
   const handleSearch = (results) => setSearchResults(results);
 
   const handleLogout = () => {
@@ -181,10 +233,12 @@ const UserDashboard = () => {
 
   const handleHotelClick = (hotel) => {
     setSelectedHotel(hotel);
+    setActiveImageIndex(0);
     setShowModal(true);
     fetchRooms(hotel.id);
     fetchHotelReviews(hotel.id);
   };
+
 
   /**
    * INVENTORY QUERY: Live room availability check
@@ -356,6 +410,12 @@ const UserDashboard = () => {
               {myBookings.length > 0 && <span className="bg-[#1B2B41] text-white px-2 py-0.5 rounded-sm text-[8px]">{myBookings.length}</span>}
               {activeTab === 'bookings' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#B88E2F]"></div>}
             </button>
+            <button
+              onClick={() => setShowRequestHotelModal(true)}
+              className="py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-[#A0AEC0] hover:text-[#B88E2F] transition-all ml-auto border border-[#B88E2F] px-4 rounded-sm"
+            >
+              Partner With Us
+            </button>
           </div>
         </div>
       </div>
@@ -492,7 +552,7 @@ const UserDashboard = () => {
                               Invoice
                             </button>
                           )}
-                          {['confirmed', 'checked_in', 'checked_out'].includes(booking.status) && !booking.is_reviewed && (
+                          {['checked_in', 'checked_out'].includes(booking.status) && !booking.is_reviewed && (
                             <button
                               onClick={() => {
                                 setSelectedBookingForReview(booking);
@@ -793,12 +853,51 @@ const UserDashboard = () => {
               {/* IMMERSIVE HERO SECTION */}
               <div className="relative h-[300px] md:h-[450px] overflow-hidden">
                 {selectedHotel.images && selectedHotel.images.length > 0 ? (
-                  <img
-                    src={selectedHotel.images[0].startsWith('data:') ? selectedHotel.images[0] : (selectedHotel.images[0].startsWith('http') ? selectedHotel.images[0] : `http://localhost:5000${selectedHotel.images[0]}`)}
-                    className="w-full h-full object-cover transition-transform duration-1000 hover:scale-105"
-                    alt="Property Hero"
-                  />
+                  <>
+                    <img
+                      src={selectedHotel.images[activeImageIndex].startsWith('data:') ? selectedHotel.images[activeImageIndex] : (selectedHotel.images[activeImageIndex].startsWith('http') ? selectedHotel.images[activeImageIndex] : `http://localhost:5000${selectedHotel.images[activeImageIndex]}`)}
+                      className="w-full h-full object-cover transition-all duration-700 hover:scale-105"
+                      alt={`Property Image ${activeImageIndex + 1}`}
+                      key={activeImageIndex}
+                    />
+
+                    {/* Navigation Arrows */}
+                    {selectedHotel.images.length > 1 && (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveImageIndex((prev) => (prev === 0 ? selectedHotel.images.length - 1 : prev - 1));
+                          }}
+                          className="absolute left-4 top-1/2 -translate-y-1/2 z-[110] w-12 h-12 bg-white/20 backdrop-blur-md text-white flex items-center justify-center hover:bg-white/40 transition-all rounded-full border border-white/30"
+                        >
+                          <span className="material-symbols-outlined">chevron_left</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveImageIndex((prev) => (prev === selectedHotel.images.length - 1 ? 0 : prev + 1));
+                          }}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 z-[110] w-12 h-12 bg-white/20 backdrop-blur-md text-white flex items-center justify-center hover:bg-white/40 transition-all rounded-full border border-white/30"
+                        >
+                          <span className="material-symbols-outlined">chevron_right</span>
+                        </button>
+
+                        {/* Pagination Dots */}
+                        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[110] flex gap-2">
+                          {selectedHotel.images.map((_, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => setActiveImageIndex(idx)}
+                              className={`w-2 h-2 rounded-full transition-all ${idx === activeImageIndex ? 'bg-white w-6' : 'bg-white/40'}`}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </>
                 ) : (
+
                   <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-300">
                     <span className="material-symbols-outlined text-8xl">image</span>
                   </div>
@@ -1165,6 +1264,119 @@ const UserDashboard = () => {
               <TileLayer url="https://{s}.tile.osm.org/{z}/{x}/{y}.png" />
               <Marker position={[selectedHotel.latitude, selectedHotel.longitude]} />
             </MapContainer>
+          </div>
+        </div>
+      )}
+      {/* MODAL: Request Hotel Listing */}
+      {showRequestHotelModal && (
+        <div className="fixed inset-0 bg-[#111B2B]/95 flex items-center justify-center z-[1000] p-6 fade-in">
+          <div className="max-w-2xl w-full bg-white border border-[#E2E2E2] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-[#1B2B41] px-10 py-8 border-b-4 border-[#B88E2F]">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-white text-lg font-bold uppercase tracking-[0.2em]">Partner Application</h3>
+                  <p className="text-[9px] text-[#A0AEC0] font-bold uppercase tracking-[0.3em] mt-2">Submit Property for Verification</p>
+                </div>
+                <button onClick={() => setShowRequestHotelModal(false)} className="text-[#A0AEC0] hover:text-white transition-colors">
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-10 overflow-y-auto custom-scrollbar">
+              <form onSubmit={handleRequestHotelSubmit} className="space-y-6">
+                <div className="space-y-4">
+                  <div className="group">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Property Name</label>
+                    <input
+                      type="text" required
+                      value={requestHotelForm.name}
+                      onChange={(e) => setRequestHotelForm({ ...requestHotelForm, name: e.target.value })}
+                      className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] focus:bg-white px-4 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="group">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">City</label>
+                      <input
+                        type="text" required
+                        value={requestHotelForm.city}
+                        onChange={(e) => setRequestHotelForm({ ...requestHotelForm, city: e.target.value })}
+                        className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] focus:bg-white px-4 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl"
+                      />
+                    </div>
+                    <div className="group">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Country</label>
+                      <input
+                        type="text" required
+                        value={requestHotelForm.country}
+                        onChange={(e) => setRequestHotelForm({ ...requestHotelForm, country: e.target.value })}
+                        className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] focus:bg-white px-4 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="group">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Address</label>
+                    <input
+                      type="text"
+                      value={requestHotelForm.address}
+                      onChange={(e) => setRequestHotelForm({ ...requestHotelForm, address: e.target.value })}
+                      className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] focus:bg-white px-4 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="group">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Phone</label>
+                      <input
+                        type="tel"
+                        value={requestHotelForm.phone}
+                        onChange={(e) => setRequestHotelForm({ ...requestHotelForm, phone: e.target.value })}
+                        className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] focus:bg-white px-4 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl"
+                      />
+                    </div>
+                    <div className="group">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Email</label>
+                      <input
+                        type="email"
+                        value={requestHotelForm.email}
+                        onChange={(e) => setRequestHotelForm({ ...requestHotelForm, email: e.target.value })}
+                        className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] focus:bg-white px-4 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="group">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Description</label>
+                    <textarea
+                      rows="3"
+                      value={requestHotelForm.description}
+                      onChange={(e) => setRequestHotelForm({ ...requestHotelForm, description: e.target.value })}
+                      className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] focus:bg-white px-4 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl resize-none"
+                    ></textarea>
+                  </div>
+
+                  <div className="group">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Property Image</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] px-4 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-5 bg-[#B88E2F] text-white text-[12px] font-bold uppercase tracking-[0.3em] hover:bg-[#9E7A28] transition-all rounded-xl shadow-lg transform active:scale-[0.98]"
+                >
+                  Submit Application
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}
