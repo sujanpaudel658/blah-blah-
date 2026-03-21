@@ -83,8 +83,31 @@ const Bookings = () => {
     const handleUpdateStatus = async (bookingId, newStatus) => {
         try {
             const token = localStorage.getItem('token');
-            const res = await axios.put(`http://localhost:5000/api/payments/${bookingId}/status`,
-                { status: newStatus },
+            let endpoint = '';
+            
+            switch (newStatus) {
+                case 'confirmed':
+                    endpoint = '/confirm-manual';
+                    break;
+                case 'cancelled':
+                    endpoint = '/cancel';
+                    break;
+                case 'checked_in':
+                    endpoint = '/check-in';
+                    break;
+                case 'checked_out':
+                    endpoint = '/check-out';
+                    break;
+                case 'refunded':
+                    endpoint = '/refund';
+                    break;
+                default:
+                    console.error('Unknown status action:', newStatus);
+                    return;
+            }
+
+            const res = await axios.post(`http://localhost:5000/api/payments${endpoint}`,
+                { bookingId },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
 
@@ -97,6 +120,7 @@ const Bookings = () => {
             }
         } catch (err) {
             console.error('Status update committed on server but local sync failed:', err);
+            alert(err.response?.data?.message || 'Action failed');
         }
     };
 
