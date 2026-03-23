@@ -30,7 +30,8 @@ const AdminDashboard = () => {
     totalRooms: '0',
     liveBookings: '0',
     occupancyRate: '0%',
-    estRevenue: '0'
+    estRevenue: '0',
+    platformFee: '0'
   });
 
   // UI State
@@ -97,10 +98,9 @@ const AdminDashboard = () => {
   };
 
   /* 
-     ANALYTICS ENGINE
+     HOTEL STATISTICS
      ----------------
-     Calculates key performance metrics for the property dashboard. 
-     Updated to handle null responses gracefully after v1.2 crash reports.
+     Shows how your hotel is performing.
   */
   const fetchAnalytics = async (hotelId) => {
     try {
@@ -119,21 +119,19 @@ const AdminDashboard = () => {
         const bookings = bookingsRes.data.bookings || [];
         setHotelBookings(bookings);
 
-        // 1. Revenue Calculation: Only count finalized payments
+        // 1. Revenue Calculation: Only count completed payments
         const paidBookings = bookings.filter(b => b?.payment_status === 'paid');
-        const revenueTotal = paidBookings.reduce((sum, b) => {
-          const amount = Number(b?.total_amount || 0);
-          return sum + amount;
-        }, 0);
+        const revenueTotal = paidBookings.reduce((sum, b) => sum + Number(b?.total_amount || 0), 0);
+        const commissionTotal = paidBookings.reduce((sum, b) => sum + Number(b?.commission_amount || 0), 0);
 
-        // 2. Inventory & Occupancy Logic
-        const inventoryList = roomsRes.data.rooms || [];
-        const totalRooms = inventoryList.length;
+        // 2. Room & Booking Stats
+        const roomList = roomsRes.data.rooms || [];
+        const totalRooms = roomList.length;
 
-        // Note: 'confirmed' status indicates a guest holding a valid contract
+        // Note: 'confirmed' status means the guest has a valid booking
         const activeBookings = bookings.filter(b => b?.status === 'confirmed').length;
 
-        // Calculate percentage (guard against division by zero for new properties)
+        // Calculate percentage (guard against division by zero)
         let occupancyPercent = '0%';
         if (totalRooms > 0) {
           occupancyPercent = ((activeBookings / totalRooms) * 100).toFixed(0) + '%';
@@ -143,7 +141,8 @@ const AdminDashboard = () => {
           totalRooms: `${totalRooms}`,
           liveBookings: `${activeBookings}`,
           occupancyRate: occupancyPercent,
-          estRevenue: `${revenueTotal.toLocaleString()}`
+          estRevenue: `${(revenueTotal - commissionTotal).toLocaleString()}`,
+          platformFee: `${commissionTotal.toLocaleString()}`
         });
       }
     } catch (err) {
@@ -197,10 +196,10 @@ const AdminDashboard = () => {
       setImages([]);
       setImagePreviews(parseHotelImages(res.data.hotel.image).map(img => getImageUrl(img)));
       setIsEditing(false);
-      showNotification('Operational update successful');
+      showNotification('Profile updated successfully');
     } catch (err) {
       console.error('Save error:', err);
-      alert('Action failed. System out of sync.');
+      alert('Action failed. Please try again.');
     }
   };
 
@@ -212,7 +211,7 @@ const AdminDashboard = () => {
       });
 
       if (res.data.success) {
-        showNotification('Update committed');
+        showNotification('Update successful');
         fetchAnalytics(hotel.id);
       }
     } catch (err) {
@@ -222,24 +221,26 @@ const AdminDashboard = () => {
 
   const handleScanSuccess = async (decodedText) => {
     try {
-      let ref = decodedText;
-      if (decodedText.startsWith('{')) {
-        ref = JSON.parse(decodedText).ref;
-      }
-
       const token = localStorage.getItem('token');
-      const res = await axios.get(`http://localhost:5000/api/payments/reference/${ref}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await axios.post(`http://localhost:5000/api/payments/scan-checkin`, 
+        { qrToken: decodedText },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
       if (res.data.success) {
-        setScannedBooking(res.data.booking);
-      } else {
-        alert('Booking not found in central registry');
-        setShowScanner(false);
+        setScannedBooking({
+          guest_name: res.data.guest.name,
+          booking_reference: res.data.booking.reference,
+          room_number: res.data.room.number,
+          check_in_date: new Date().toISOString(), // Shows today as check-in mapping for display
+          payment_status: 'PAID'
+        });
+        showNotification(res.data.message);
+        fetchAnalytics(hotel.id); // Refresh dashboard to show new occupancy
       }
     } catch (err) {
-      alert('Reference decoding failure');
+      const errorMessage = err.response?.data?.message || 'Could not validate QR code.';
+      alert(`Scan Failed: ${errorMessage}`);
       setShowScanner(false);
     }
   };
@@ -251,7 +252,7 @@ const AdminDashboard = () => {
           setUserLocation([pos.coords.latitude, pos.coords.longitude]);
           setShowDirections(true);
         },
-        () => alert('GPS signal lost or permission denied')
+        () => alert('Could not find your location')
       );
     }
   };
@@ -274,11 +275,11 @@ const AdminDashboard = () => {
       user={user}
       hotel={hotel}
       onLogout={handleLogout}
-      title="OPERATIONAL DASHBOARD"
-      subtitle="SYSTEM STATUS: ONLINE"
+      title="HOTEL DASHBOARD"
+      subtitle="SYSTEM ONLINE"
     >
       <div className="space-y-8 pb-12">
-        {/* v1.4: Dynamic success feedback module */}
+        {/* Success feedback message */}
         {successMessage && (
           <div className="bg-[#E7F3ED] border border-[#108548] p-4 flex items-center gap-3 text-[#108548] font-bold text-xs uppercase tracking-widest mb-6 fade-in">
             <span className="material-symbols-outlined text-sm">verified</span>
@@ -286,39 +287,40 @@ const AdminDashboard = () => {
           </div>
         )}
 
-        {/* =========================
-            1. KPI SUMMARY MODULE
-            ========================= */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+        {/* 1. STATISTICS OVERVIEW */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
           <div className="lg:col-span-2">
             <StatCard
-              label="TOTAL GROSS REVENUE"
-              value={`Rs. ${dashboardStats.estRevenue}`}
-              icon="payments"
-              trend="↑ 12.4%"
+              label="SYSTEM BALANCE"
+              value={`Rs. ${Number(hotel?.balance || 0).toLocaleString()}`}
+              icon="account_balance"
+              trend={Number(hotel?.balance) < 0 ? "Owed to Platform" : "Available to Withdraw"}
               isMajor={true}
             />
           </div>
           <div className="lg:col-span-1">
-            <StatCard label="TOTAL INVENTORY" value={dashboardStats.totalRooms} icon="inventory" />
+            <StatCard
+              label="NET EARNINGS"
+              value={`Rs. ${dashboardStats.estRevenue}`}
+              icon="payments"
+              trend="Total Collected"
+            />
           </div>
           <div className="lg:col-span-1">
-            <StatCard label="ACTIVE BOOKINGS" value={dashboardStats.liveBookings} icon="confirmation_number" trend="↑ 4%" />
+            <StatCard label="TOTAL ROOMS" value={dashboardStats.totalRooms} icon="inventory" />
           </div>
           <div className="lg:col-span-1">
-            <StatCard label="OCCUPANCY RATE" value={dashboardStats.occupancyRate} icon="percent" trend="↓ 1.2%" />
+            <StatCard label="ACTIVE BOOKINGS" value={dashboardStats.liveBookings} icon="confirmation_number" trend="Live" />
+          </div>
+          <div className="lg:col-span-1">
+            <StatCard label="OCCUPANCY RATE" value={dashboardStats.occupancyRate} icon="percent" />
           </div>
         </div>
 
-        {/* =========================
-            2. RESERVATION REGISTRY
-            -------------------------
-            Shows recent activity. 
-            Full ledger moved to /admin/bookings in v2.0
-            ========================= */}
+        {/* 2. BOOKING LIST */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-[#1B2B41] uppercase tracking-[0.2em]">Reservation Registry</h2>
+            <h2 className="text-sm font-bold text-[#1B2B41] uppercase tracking-[0.2em]">Booking List</h2>
           </div>
           <BookingTable
             bookings={hotelBookings}
@@ -331,12 +333,10 @@ const AdminDashboard = () => {
           />
         </div>
 
-        {/* =========================
-            3. PROPERTY MANAGEMENT
-            ========================= */}
+        {/* 3. HOTEL MANAGEMENT */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
           <div className="space-y-4">
-            <h2 className="text-sm font-bold text-[#1B2B41] uppercase tracking-[0.2em]">Property Records</h2>
+            <h2 className="text-sm font-bold text-[#1B2B41] uppercase tracking-[0.2em]">Hotel Profile</h2>
             <HotelProfile
               hotel={hotel}
               description={description}
@@ -351,7 +351,7 @@ const AdminDashboard = () => {
           </div>
 
           <div className="space-y-4">
-            <h2 className="text-sm font-bold text-[#1B2B41] uppercase tracking-[0.2em]">Geospatial Data</h2>
+            <h2 className="text-sm font-bold text-[#1B2B41] uppercase tracking-[0.2em]">Hotel Location</h2>
             <MapSection
               latitude={latitude}
               setLatitude={setLatitude}
