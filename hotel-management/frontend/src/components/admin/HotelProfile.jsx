@@ -14,8 +14,8 @@ const HotelProfile = ({
     if (!hotel) return (
         <div className="admin-card p-12 text-center bg-white">
             <span className="material-symbols-outlined text-4xl text-[#D1D5DB] mb-4">home_work</span>
-            <h3 className="text-lg font-bold text-[#1B2B41] mb-2">No Property Data</h3>
-            <p className="text-[#64748B] text-sm">Please link your account to a property.</p>
+            <h3 className="text-lg font-bold text-[#1B2B41] mb-2">No Hotel Data</h3>
+            <p className="text-[#64748B] text-sm">Please link your account to a hotel.</p>
         </div>
     );
 
@@ -24,7 +24,7 @@ const HotelProfile = ({
             {/* Component Header */}
             <div className="p-6 border-b border-[#F1F1F1] flex items-center justify-between">
                 <div>
-                    <span className="admin-label">Property Management</span>
+                    <span className="admin-label">Hotel Management</span>
                     <h3 className="text-lg font-bold text-[#1B2B41] uppercase tracking-tight">Main Profile</h3>
                 </div>
                 <button
@@ -32,7 +32,7 @@ const HotelProfile = ({
                     className={`admin-button ${isEditing ? 'admin-button-primary' : 'admin-button-secondary'}`}
                 >
                     <span className="material-symbols-outlined text-sm">{isEditing ? 'save' : 'edit'}</span>
-                    {isEditing ? 'COMMIT CHANGES' : 'EDIT INFORMATION'}
+                    {isEditing ? 'SAVE CHANGES' : 'EDIT PROFILE'}
                 </button>
             </div>
 
@@ -104,7 +104,7 @@ const HotelProfile = ({
                             onChange={(e) => setDescription(e.target.value)}
                             disabled={!isEditing}
                             className="admin-input min-h-[160px] leading-relaxed resize-none bg-white p-4"
-                            placeholder="Provide a detailed description of the property for prospective guests..."
+                            placeholder="Provide a detailed description of the hotel for prospective guests..."
                         />
                         <div className="flex justify-between mt-2">
                             <span className="text-[10px] font-bold text-[#94A3B8] tracking-widest uppercase">Sync Status: Active</span>

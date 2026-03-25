@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import Footer from '../components/Footer';
 import { useReactToPrint } from 'react-to-print';
 import axios from 'axios';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -19,8 +20,7 @@ L.Icon.Default.mergeOptions({
 /**
  * UserDashboard Component
  * 
- * Central Guest Console for the StayNepal system. 
- * Manages property discovery, real-time inventory reservation, and booking history.
+ * Central Guest Console for the StayNepal system.   * Manages hotel search, room booking, and reservation history.
  * 
  * Aesthetic: Formal Architectural Hospitality (2016-2019)
  */
@@ -28,13 +28,13 @@ const UserDashboard = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // -- IDENTITY & DISCOVERY STATE --
+  // -- USER & SEARCH STATE --
   const [user, setUser] = useState(null);
   const [hotels, setHotels] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
   const [activeTab, setActiveTab] = useState('explore');
 
-  // -- PROPERTY SELECTION STATE --
+  // -- HOTEL SELECTION STATE --
   const [selectedHotel, setSelectedHotel] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [isMapFullScreen, setIsMapFullScreen] = useState(false);
@@ -43,20 +43,22 @@ const UserDashboard = () => {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
 
 
-  // -- RESERVATION PARAMETERS --
+  // -- BOOKING DATES --
   const [isReserving, setIsReserving] = useState(false);
   const [bookingDates, setBookingDates] = useState({
     checkIn: new Date().toISOString().split('T')[0],
     checkOut: new Date(Date.now() + 86400000).toISOString().split('T')[0]
   });
   const [numGuests, setNumGuests] = useState(1);
+  const [numRooms, setNumRooms] = useState(1);
 
-  // -- BOOKING REGISTRY STATE --
+  // -- MY BOOKINGS STATE --
   const [myBookings, setMyBookings] = useState([]);
   const [showPassModal, setShowPassModal] = useState(false);
   const [showBillModal, setShowBillModal] = useState(false);
   const [selectedPass, setSelectedPass] = useState(null);
   const [selectedBill, setSelectedBill] = useState(null);
+  const [qrToken, setQrToken] = useState(null);
 
   // -- HOTEL REQUEST STATE --
   const [showRequestHotelModal, setShowRequestHotelModal] = useState(false);
@@ -71,7 +73,7 @@ const UserDashboard = () => {
     image: ''
   });
 
-  // -- REVIEW & FEEDBACK STATE --
+  // -- REVIEWS & FEEDBACK --
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [selectedBookingForReview, setSelectedBookingForReview] = useState(null);
   const [hotelReviews, setHotelReviews] = useState([]);
@@ -93,7 +95,7 @@ const UserDashboard = () => {
   });
 
   /**
-   * INITIALIZATION: Fetch Global Property Registry
+   * INITIALIZATION: Load Hotels
    */
   useEffect(() => {
     axios.get('http://localhost:5000/api/hotels')
@@ -118,11 +120,14 @@ const UserDashboard = () => {
         setHotels(mapped);
         setSearchResults(mapped);
         return mapped;
+      })
+      .catch(err => {
+        console.error('Initial hotels data load error:', err);
       });
   }, []);
 
   /**
-   * REVIEWS: Fetch Feedback Ledger for specific asset
+   * REVIEWS: Load guest reviews for the hotel
    */
   const fetchHotelReviews = async (hotelId) => {
     try {
@@ -131,12 +136,12 @@ const UserDashboard = () => {
         setHotelReviews(res.data.reviews);
       }
     } catch (err) {
-      console.error('Feedback Error:', err.message);
+      console.error('Review Error:', err.message);
     }
   };
 
   /**
-   * AUTHENTICATION GUARD & SESSION HYDRATION
+   * AUTHENTICATION & SESSION LOAD
    */
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -158,7 +163,29 @@ const UserDashboard = () => {
   }, [navigate, location]);
 
   /**
-   * RETRIEVAL: Personal Booking Archive
+   * QR SECURITY: Fetch signed token for the digital pass
+   */
+  useEffect(() => {
+    if (showPassModal && selectedPass) {
+      const fetchToken = async () => {
+        try {
+          const token = localStorage.getItem('token');
+          const res = await axios.get(`http://localhost:5000/api/payments/qr-token/${selectedPass.id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.data.success) setQrToken(res.data.qrToken);
+        } catch (err) {
+          console.error('Failed to generate secure QR signature:', err);
+        }
+      };
+      fetchToken();
+    } else {
+      setQrToken(null);
+    }
+  }, [showPassModal, selectedPass]);
+
+  /**
+   * LOAD: My Booking History
    */
   const fetchMyBookings = async () => {
     try {
@@ -241,7 +268,7 @@ const UserDashboard = () => {
 
 
   /**
-   * INVENTORY QUERY: Live room availability check
+   * CHECK AVAILABILITY: Live room check
    */
   useEffect(() => {
     if (showModal && selectedHotel && bookingDates.checkIn && bookingDates.checkOut) {
@@ -282,9 +309,9 @@ const UserDashboard = () => {
   };
 
   /**
-   * TRANSACTION INITIATION: Khalti Payment Gateway Integration
+   * PAYMENT: Khalti Payment Gateway Integration
    */
-  const handleReserve = async () => {
+  const processBooking = async (method = 'khalti') => {
     if (!selectedRoom) return alert('Please select a room first');
 
     const checkIn = new Date(bookingDates.checkIn);
@@ -293,7 +320,7 @@ const UserDashboard = () => {
     if (checkOut <= checkIn) return alert('Check-out date must be after check-in date');
 
     const totalNights = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));
-    const totalAmount = selectedRoom.base_price * totalNights;
+    const totalAmount = selectedRoom.base_price * totalNights * numRooms;
 
     setIsReserving(true);
     try {
@@ -311,59 +338,81 @@ const UserDashboard = () => {
         room_type_id: selectedRoom.room_type_id,
         check_in_date: bookingDates.checkIn,
         check_out_date: bookingDates.checkOut,
-        num_guests: numGuests
+        num_guests: numGuests,
+        num_rooms: numRooms,
+        payment_method: method
       };
 
       const res = await axios.post('http://localhost:5000/api/payments/initiate', payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (res.data.success && res.data.payment?.payment_url) {
-        window.location.href = res.data.payment.payment_url;
+      if (res.data.success) {
+        if (method === 'khalti' && res.data.payment?.payment_url) {
+          window.location.href = res.data.payment.payment_url;
+        } else if (method === 'cash') {
+          alert('Booking confirmed successfully! Please pay at the hotel upon arrival.');
+          setShowModal(false);
+          fetchMyBookings();
+        } else {
+          alert('Booking successful!');
+          setShowModal(false);
+          fetchMyBookings();
+        }
       } else {
-        alert('Transaction Initialization Failure: ' + (res.data.message || 'Unknown protocol error.'));
+        alert('Booking Failed: ' + (res.data.message || 'Something went wrong.'));
       }
     } catch (error) {
+      if (error.response?.data?.code === 'EXCEEDS_CAPACITY') {
+        const confirmMultiple = window.confirm(
+          `Error: This room block only accommodates ${error.response.data.max_occupancy} people, but you requested ${numGuests} guests for ${numRooms} room(s).\n\nWould you like to book for ${error.response.data.max_occupancy} people instead, and then return to book an additional room for the rest?`
+        );
+        if (confirmMultiple) {
+          setNumGuests(error.response.data.max_occupancy);
+          alert(`Guest count automatically adjusted to ${error.response.data.max_occupancy}. Please click 'Process Reservation' again to secure this room block.`);
+        }
+        return;
+      }
       console.error('Reservation Fault:', error);
-      alert('Network transaction fault. Please verify connectivity.');
+      alert(error.response?.data?.message || 'Payment connection error. Please try again.');
     } finally {
       setIsReserving(false);
     }
   };
 
   const handleCancelBooking = async (bookingId) => {
-    if (!window.confirm("Abort this reservation? Data cannot be restored.")) return;
+    if (!window.confirm("Cancel this booking? This action cannot be undone.")) return;
     try {
       const token = localStorage.getItem('token');
       await axios.post('http://localhost:5000/api/payments/cancel', { bookingId }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchMyBookings();
-    } catch (error) { alert('Operation Aborted: Process failed.'); }
+    } catch (error) { alert('Cancel failed. Please try again.'); }
   };
 
   const handleRefundRequest = async (bookingId, amount) => {
-    if (!window.confirm(`Initiate refund protocol for NRS ${amount}? Record will be archived.`)) return;
+    if (!window.confirm(`Request a refund for NRS ${amount}?`)) return;
     try {
       const token = localStorage.getItem('token');
       const res = await axios.post('http://localhost:5000/api/payments/refund', { bookingId }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data.success) {
-        alert('Refund Protocol Verified: Transaction successful.');
+        alert('Refund request submitted successfully.');
         fetchMyBookings();
       }
-    } catch (error) { alert('Refund protocol failed. Please contact property support.'); }
+    } catch (error) { alert('Refund request failed. Please contact support.'); }
   };
 
   const handleVerifyPayment = async (booking) => {
     try {
       const res = await axios.post('http://localhost:5000/api/payments/verify', { purchase_order_id: booking.id });
       if (res.data.success) {
-        alert('Transaction Verified: Booking confirmed.');
+        alert('Payment Verified: Booking confirmed.');
         fetchMyBookings();
       } else {
-        alert('Verification Status: ' + (res.data.message || 'Null/Pending.'));
+        alert('Status: ' + (res.data.message || 'Pending verification.'));
       }
     } catch (error) { alert('Verification link timeout.'); }
   };
@@ -386,7 +435,7 @@ const UserDashboard = () => {
       <Navbar
         user={user}
         onLogout={handleLogout}
-        searchPlaceholder="Inventory Search..."
+        searchPlaceholder="Find your hotel..."
         hotelSuggestions={hotels}
         onSearch={handleSearch}
       />
@@ -399,14 +448,14 @@ const UserDashboard = () => {
               onClick={() => setActiveTab('explore')}
               className={`py-5 text-[10px] font-bold uppercase tracking-[0.2em] transition-all relative ${activeTab === 'explore' ? 'text-[#1B2B41]' : 'text-[#A0AEC0] hover:text-[#1B2B41]'}`}
             >
-              Property Registry
+              Explore Hotels
               {activeTab === 'explore' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#B88E2F]"></div>}
             </button>
             <button
               onClick={() => setActiveTab('bookings')}
               className={`py-5 text-[10px] font-bold uppercase tracking-[0.2em] transition-all relative flex items-center gap-2 ${activeTab === 'bookings' ? 'text-[#1B2B41]' : 'text-[#A0AEC0] hover:text-[#1B2B41]'}`}
             >
-              Reservation Archive
+              My Bookings
               {myBookings.length > 0 && <span className="bg-[#1B2B41] text-white px-2 py-0.5 rounded-sm text-[8px]">{myBookings.length}</span>}
               {activeTab === 'bookings' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#B88E2F]"></div>}
             </button>
@@ -421,29 +470,44 @@ const UserDashboard = () => {
       </div>
 
       {activeTab === 'explore' ? (
-        <main className="max-w-7xl mx-auto px-6 py-12">
-          {/* Hero Selection Frame */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-20 items-center mb-20">
-            <div className="space-y-6">
-              <span className="text-[10px] font-bold text-[#B88E2F] uppercase tracking-[0.4em]">Integrated Hospitality Portal</span>
-              <h1 className="text-5xl lg:text-7xl font-bold text-[#1B2B41] leading-none tracking-tight">
-                Secure <br />
-                Destination <br />
-                Registry<span className="text-[#B88E2F]">.</span>
-              </h1>
-              <p className="text-base text-[#64748B] max-w-md leading-relaxed">
-                Direct access to Nepal's established property network. Verified inventory for metabolic and professional hospitality requirements.
-              </p>
+        <>
+          {/* Full-width Video Background Section (Edge-to-Edge) */}
+          <section className="relative w-full overflow-hidden min-h-[580px] flex items-center">
+            {/* Absolute Video Background Layer */}
+            <div className="absolute inset-0 z-0 w-full h-full">
+              <video 
+                autoPlay 
+                loop 
+                muted 
+                playsInline 
+                className="w-full h-full object-cover opacity-30 grayscale-[20%]"
+              >
+                <source src="/videos/857267-hd_1920_1080_24fps.mp4" type="video/mp4" />
+              </video>
+              <div className="absolute inset-0 bg-gradient-to-b from-[#F5F3EF]/80 via-[#F5F3EF]/40 to-[#F5F3EF]"></div>
             </div>
 
-            <div className="hidden lg:block">
-              {/* Optional: Placeholder or right-side visual for hero section if needed, but per request removing the specific card */}
+            <div className="relative z-10 max-w-7xl mx-auto px-6 w-full py-20">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-20 items-center">
+                <div className="space-y-6">
+                  <span className="text-[10px] font-bold text-[#B88E2F] uppercase tracking-[0.4em]">Integrated Booking Portal</span>
+                  <h1 className="text-5xl lg:text-7xl font-bold text-[#1B2B41] leading-none tracking-tight">
+                    Perfect <br />
+                    Stay <br />
+                    Finder<span className="text-[#B88E2F]">.</span>
+                  </h1>
+                  <p className="text-base text-[#64748B] max-w-md leading-relaxed font-medium">
+                    Direct access to Nepal's best hotels. Verified rooms for your business or vacation needs.
+                  </p>
+                </div>
+              </div>
             </div>
-          </div>
+          </section>
 
-          {/* Results Grid Node */}
-          <div className="space-y-8">
-            <h2 className="text-xl font-bold text-[#1B2B41] uppercase tracking-tight border-b border-[#F1F1F1] pb-4">Available Assets</h2>
+          <main className="max-w-7xl mx-auto px-6 py-12">
+            {/* Results Grid Node */}
+            <div className="space-y-8">
+            <h2 className="text-xl font-bold text-[#1B2B41] uppercase tracking-tight italic border-b border-[#F1F1F1] pb-4">Available Hotels</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {searchResults.map(hotel => (
                 <div key={hotel.id} className="bg-white border border-[#E2E2E2] overflow-hidden cursor-pointer hover:border-[#B88E2F] transition-all rounded-2xl group shadow-sm hover:shadow-xl" onClick={() => handleHotelClick(hotel)}>
@@ -468,23 +532,24 @@ const UserDashboard = () => {
                     </div>
                     <div className="flex items-center gap-2 mb-6">
                       <span className="material-symbols-outlined text-[14px] text-[#B88E2F]">location_on</span>
-                      <p className="text-[11px] font-bold text-[#64748B] uppercase tracking-widest">{hotel.description.split('-')[0]}</p>
+                      <p className="text-[11px] font-bold text-[#64748B] uppercase tracking-widest">{hotel.city ? `${hotel.city}${hotel.country ? `, ${hotel.country}` : ''}` : 'Location Available'}</p>
                     </div>
                     <button className="w-full mt-2 py-4 border border-[#E2E2E2] text-[10px] font-bold text-[#1B2B41] uppercase tracking-[0.2em] hover:bg-[#1B2B41] hover:text-white transition-all rounded-xl">
-                      Inspect Property
+                      View Hotel Details
                     </button>
                   </div>
                 </div>
               ))}
             </div>
           </div>
-        </main>
+          </main>
+        </>
       ) : (
         <section className="max-w-7xl mx-auto px-6 py-12">
           <div className="flex flex-col gap-10">
             <div className="space-y-2 border-b border-[#F1F1F1] pb-6">
-              <h2 className="text-2xl font-bold text-[#1B2B41] uppercase tracking-tight italic">Registry History</h2>
-              <p className="text-[11px] font-bold text-[#64748B] uppercase tracking-widest">Historical Log & Active Reservation Archive</p>
+              <h2 className="text-2xl font-bold text-[#1B2B41] uppercase tracking-tight italic">My Bookings</h2>
+              <p className="text-[11px] font-bold text-[#64748B] uppercase tracking-widest">History of your past and current hotel bookings</p>
             </div>
 
             {myBookings.length > 0 ? (
@@ -508,7 +573,7 @@ const UserDashboard = () => {
                     <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-10 items-center">
                       <div className="space-y-4">
                         <div>
-                          <p className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest mb-1 font-mono">NODE_CONTRACT</p>
+                          <p className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest mb-1 font-mono">HOTEL_BOOKING</p>
                           <h4 className="text-base font-bold text-[#1B2B41] uppercase tracking-tight">{booking.hotel_name}</h4>
                         </div>
                         <div className="flex items-center gap-2 text-[#64748B] text-[10px] font-bold uppercase">
@@ -519,18 +584,18 @@ const UserDashboard = () => {
 
                       <div className="grid grid-cols-2 gap-10 py-6 md:py-0 border-y md:border-y-0 md:border-x border-[#F1F1F1] md:px-10">
                         <div className="space-y-1">
-                          <p className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest">Initialization</p>
+                          <p className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest">Check-in</p>
                           <p className="text-xs font-bold text-[#1B2B41]">{new Date(booking.check_in_date).toLocaleDateString()}</p>
                         </div>
                         <div className="space-y-1">
-                          <p className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest">Termination</p>
+                          <p className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest">Check-out</p>
                           <p className="text-xs font-bold text-[#1B2B41]">{new Date(booking.check_out_date).toLocaleDateString()}</p>
                         </div>
                       </div>
 
                       <div className="flex flex-col md:items-end gap-6">
                         <div className="text-right">
-                          <p className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest mb-1">Total Fee (Paid)</p>
+                          <p className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest mb-1">Total Price (Paid)</p>
                           <p className="text-2xl font-bold text-[#1B2B41]">NRS {Number(booking.total_amount).toLocaleString()}</p>
                         </div>
                         <div className="flex flex-wrap md:flex-nowrap justify-end gap-3 w-full md:w-auto">
@@ -567,7 +632,7 @@ const UserDashboard = () => {
                           {booking.is_reviewed > 0 && (
                             <div className="px-6 py-4 bg-slate-50 border border-slate-200 text-slate-400 text-[10px] font-bold uppercase tracking-widest rounded-xl flex items-center gap-3">
                               <span className="material-symbols-outlined text-sm">verified</span>
-                              Feedback Transmitted
+                               Review Submitted
                             </div>
                           )}
                           {booking.status === 'confirmed' && booking.payment_status === 'paid' && (
@@ -580,7 +645,7 @@ const UserDashboard = () => {
                           )}
                           {booking.status === 'pending' && (
                             <button onClick={() => handleVerifyPayment(booking)} className="px-5 py-3 bg-[#B88E2F] text-white text-[10px] font-bold uppercase tracking-widest hover:bg-[#9E7A28] transition-all rounded-sm">
-                              Verify Protocol
+                               Verify Payment
                             </button>
                           )}
                         </div>
@@ -592,7 +657,7 @@ const UserDashboard = () => {
               </div>
             ) : (
               <div className="py-32 bg-white border border-[#E2E2E2] text-center rounded-sm">
-                <p className="text-xs font-bold text-[#94A3B8] uppercase tracking-[0.3em]">No Active Contracts In Record</p>
+                <p className="text-xs font-bold text-[#94A3B8] uppercase tracking-[0.3em]">No bookings found</p>
               </div>
             )}
           </div>
@@ -605,7 +670,7 @@ const UserDashboard = () => {
           <div className="max-w-md w-full bg-white border border-[#E2E2E2] rounded-sm shadow-2xl overflow-hidden">
             <div className="bg-[#1B2B41] px-10 py-8 border-b-4 border-[#B88E2F]">
               <h3 className="text-white text-lg font-bold uppercase tracking-[0.2em]">{selectedPass.hotel_name}</h3>
-              <p className="text-[9px] text-[#A0AEC0] font-bold uppercase tracking-[0.3em] mt-2">Official Property Access Permit</p>
+              <p className="text-[9px] text-[#A0AEC0] font-bold uppercase tracking-[0.3em] mt-2">Official Hotel Entry Pass</p>
             </div>
 
             <div className="p-10 space-y-10">
@@ -616,7 +681,7 @@ const UserDashboard = () => {
                 </div>
                 <div className="space-y-1 text-right">
                   <span className="text-[8px] font-bold text-[#A0AEC0] uppercase tracking-widest block">Unit Allocation</span>
-                  <p className="text-xs font-bold text-[#B88E2F] uppercase">{selectedPass.room_number || 'AWAITING_SYNC'}</p>
+                  <p className="text-xs font-bold text-[#B88E2F] uppercase">{selectedPass.room_number || 'PENDING'}</p>
                 </div>
               </div>
 
@@ -633,14 +698,16 @@ const UserDashboard = () => {
 
               <div className="flex flex-col items-center py-6">
                 <div className="p-6 bg-[#F9FAFB] border border-[#E2E2E2] rounded-sm">
-                  <QRCodeCanvas
-                    value={JSON.stringify({
-                      ref: selectedPass.booking_reference,
-                      hotel: selectedPass.hotel_id,
-                      status: selectedPass.status
-                    })}
-                    size={160} level={"H"} fgColor="#1B2B41"
-                  />
+                  {qrToken ? (
+                    <QRCodeCanvas
+                      value={qrToken}
+                      size={160} level={"H"} fgColor="#1B2B41"
+                    />
+                  ) : (
+                    <div className="w-40 h-40 flex items-center justify-center bg-slate-100 animate-pulse text-[10px] font-bold text-slate-400">
+                      GENERATING SECURE KEY...
+                    </div>
+                  )}
                 </div>
                 <p className="text-[9px] font-bold text-[#1B2B41] mt-6 uppercase tracking-[0.3em] font-mono">{selectedPass.booking_reference}</p>
               </div>
@@ -649,7 +716,7 @@ const UserDashboard = () => {
                 onClick={() => setShowPassModal(false)}
                 className="w-full py-5 bg-[#1B2B41] text-white text-[10px] font-bold uppercase tracking-[0.3em] hover:bg-[#2D3748] transition-all rounded-xl shadow-lg"
               >
-                Dismiss Permit
+                Close Pass
               </button>
             </div>
           </div>
@@ -664,7 +731,7 @@ const UserDashboard = () => {
               <div className="flex justify-between items-center">
                 <div>
                   <h3 className="text-white text-lg font-bold uppercase tracking-[0.2em]">Rate Your Stay</h3>
-                  <p className="text-[9px] text-[#A0AEC0] font-bold uppercase tracking-[0.3em] mt-2">Feedback Protocol for {selectedBookingForReview.hotel_name}</p>
+                  <p className="text-[9px] text-[#A0AEC0] font-bold uppercase tracking-[0.3em] mt-2">Review stay at {selectedBookingForReview.hotel_name}</p>
                 </div>
                 <button onClick={() => setShowReviewModal(false)} className="text-[#A0AEC0] hover:text-white transition-colors">
                   <span className="material-symbols-outlined">close</span>
@@ -695,10 +762,10 @@ const UserDashboard = () => {
                   <div className="space-y-4">
                     <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block px-1">Dimensional Metrics</label>
                     {[
-                      { key: 'cleanliness', label: 'Sanitary Standard' },
+                      { key: 'cleanliness', label: 'Cleanliness' },
                       { key: 'service', label: 'Service Quality' },
-                      { key: 'location', label: 'Logical Mapping' },
-                      { key: 'value', label: 'Fiscal Parity' }
+                      { key: 'location', label: 'Location' },
+                      { key: 'value', label: 'Value for Money' }
                     ].map((metric) => (
                       <div key={metric.key} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl shadow-sm">
                         <span className="text-[10px] font-bold text-[#1B2B41] uppercase">{metric.label}</span>
@@ -732,7 +799,7 @@ const UserDashboard = () => {
                       <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Detailed Commentary</label>
                       <textarea
                         rows="4"
-                        placeholder="Describe your operational experience within the property registry..."
+                        placeholder="How was your stay? Tell us about your experience..."
                         value={reviewForm.comment}
                         onChange={(e) => setReviewForm({ ...reviewForm, comment: e.target.value })}
                         className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] focus:bg-white px-4 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl resize-none"
@@ -759,7 +826,7 @@ const UserDashboard = () => {
                       headers: { Authorization: `Bearer ${token}` }
                     });
 
-                    alert('Review protocol synchronized successfully.');
+                    alert('Thank you! Your review has been submitted.');
                     setShowReviewModal(false);
                     fetchMyBookings();
                   } catch (err) {
@@ -768,7 +835,7 @@ const UserDashboard = () => {
                 }}
                 className="w-full py-5 bg-[#B88E2F] text-white text-[12px] font-bold uppercase tracking-[0.3em] hover:bg-[#9E7A28] transition-all rounded-xl shadow-lg transform active:scale-[0.98]"
               >
-                Transmit Feedback
+                Submit Review
               </button>
             </div>
           </div>
@@ -810,16 +877,16 @@ const UserDashboard = () => {
                   </div>
 
                   <div className="border-t border-[#1B2B41] pt-4 space-y-2">
-                    <div className="flex justify-between text-base font-bold"><span>TOTAL FEE:</span><span>NRS {Number(selectedBill.total_amount).toLocaleString()}</span></div>
-                    <div className="flex justify-between text-[10px] italic"><span>PAYMENT:</span><span className="font-bold uppercase">{selectedBill.payment_method || 'KHALTI GATEWAY'}</span></div>
+                    <div className="flex justify-between text-base font-bold"><span>TOTAL PRICE:</span><span>NRS {Number(selectedBill.total_amount).toLocaleString()}</span></div>
+                    <div className="flex justify-between text-[10px] italic"><span>PAYMENT:</span><span className="font-bold uppercase">{selectedBill.payment_method || 'KHALTI PAYMENT'}</span></div>
                   </div>
 
                   <div className="mt-10 pt-10 border-t border-dashed border-[#E2E2E2] text-center space-y-8">
                     <div className="flex flex-col items-center">
                       <QRCodeCanvas value={selectedBill.booking_reference} size={80} fgColor="#1B2B41" />
-                      <p className="text-[8px] mt-2 font-bold text-[#A0AEC0]">SYSTEM AUTHENTICATED</p>
+                      <p className="text-[8px] mt-2 font-bold text-[#A0AEC0]">VERIFIED BY STAYNEPAL</p>
                     </div>
-                    <p className="text-[10px] font-bold uppercase tracking-tight italic">Operation Concluded. Safe Travels.</p>
+                    <p className="text-[10px] font-bold uppercase tracking-tight italic">Booking Complete. Safe Travels.</p>
                   </div>
                 </div>
               </div>
@@ -827,17 +894,17 @@ const UserDashboard = () => {
 
             <div className="md:w-72 bg-[#1B2B41] p-10 flex flex-col justify-center gap-6 rounded-r-2xl">
               <button onClick={handlePrint} className="w-full py-4 bg-[#B88E2F] text-white text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-[#9E7A28] rounded-xl transition-all shadow-lg">
-                Execute Print
+                Print Receipt
               </button>
               <button onClick={() => setShowBillModal(false)} className="w-full py-4 border border-[#2D4361] text-white text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-white/5 rounded-xl transition-all">
-                Dismiss
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODERN LUXURY MODAL: Property Detail Terminal */}
+      {/* HOTEL DETAILS MODAL */}
       {showModal && selectedHotel && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 md:p-6 fade-in">
           <div className="bg-white max-w-6xl w-full max-h-[95vh] overflow-hidden rounded-2xl flex flex-col relative shadow-2xl">
@@ -857,7 +924,7 @@ const UserDashboard = () => {
                     <img
                       src={selectedHotel.images[activeImageIndex].startsWith('data:') ? selectedHotel.images[activeImageIndex] : (selectedHotel.images[activeImageIndex].startsWith('http') ? selectedHotel.images[activeImageIndex] : `http://localhost:5000${selectedHotel.images[activeImageIndex]}`)}
                       className="w-full h-full object-cover transition-all duration-700 hover:scale-105"
-                      alt={`Property Image ${activeImageIndex + 1}`}
+                      alt={`Hotel Image ${activeImageIndex + 1}`}
                       key={activeImageIndex}
                     />
 
@@ -907,7 +974,7 @@ const UserDashboard = () => {
 
                 <div className="absolute bottom-8 left-8 text-white">
                   <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <span className="bg-[#B88E2F] text-white px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-lg">Premium Asset</span>
+                    <span className="bg-[#B88E2F] text-white px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-lg">Premium Hotel</span>
                     <div className="flex items-center gap-1 bg-black/30 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold">
                       <span className="material-symbols-outlined text-[14px] text-yellow-400">star</span>
                       <span>{Number(selectedHotel.rating || 0).toFixed(1)} Rating</span>
@@ -928,7 +995,9 @@ const UserDashboard = () => {
                     <div className="space-y-4">
                       <div className="flex items-center gap-2 text-[#B88E2F]">
                         <span className="material-symbols-outlined text-xl">location_on</span>
-                        <span className="text-sm font-semibold tracking-wide uppercase">{selectedHotel.description}</span>
+                        <span className="text-sm font-semibold tracking-wide uppercase">
+                          {selectedHotel.city ? `${selectedHotel.city}${selectedHotel.country ? `, ${selectedHotel.country}` : ''}` : 'Location Available'}
+                        </span>
                       </div>
                       <div className="flex flex-wrap gap-6 py-6 border-y border-slate-100">
                         <div className="flex items-center gap-3">
@@ -937,7 +1006,7 @@ const UserDashboard = () => {
                           </div>
                           <div>
                             <span className="block text-xs font-bold text-slate-400 uppercase">Configuration</span>
-                            <span className="text-sm font-semibold text-[#1B2B41]">Bespoke Units</span>
+                            <span className="text-sm font-semibold text-[#1B2B41]">Available Rooms</span>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -961,11 +1030,11 @@ const UserDashboard = () => {
                       </div>
                     </div>
 
-                    {/* About Property */}
+                    {/* About Hotel */}
                     <section>
-                      <h4 className="text-sm font-bold text-[#1B2B41] uppercase tracking-widest mb-4 border-l-4 border-[#B88E2F] pl-4">Property Overiew</h4>
+                      <h4 className="text-sm font-bold text-[#1B2B41] uppercase tracking-widest mb-4 border-l-4 border-[#B88E2F] pl-4">About This Hotel</h4>
                       <p className="text-lg text-slate-600 leading-relaxed">
-                        {selectedHotel.fullDescription || "Property overview pending synchronization. Initial audits confirm operational reliability and high-standard hospitality parameters."}
+                        {selectedHotel.fullDescription || "Hotel information is arriving soon. Our team is verifying this hotel to ensure a high standard of hospitality for your stay."}
                       </p>
                     </section>
 
@@ -991,10 +1060,10 @@ const UserDashboard = () => {
                       </div>
                     </section>
 
-                    {/* Guest Feedback Ledger Section */}
+                    {/* Guest Reviews Section */}
                     <section className="space-y-8 pb-12">
                       <div className="flex items-center justify-between border-b border-[#F1F1F1] pb-4">
-                        <h4 className="text-sm font-bold text-[#1B2B41] uppercase tracking-widest border-l-4 border-[#B88E2F] pl-4 font-inter">Guest Feedback</h4>
+                        <h4 className="text-sm font-bold text-[#1B2B41] uppercase tracking-widest border-l-4 border-[#B88E2F] pl-4 font-inter">Guest Reviews</h4>
                         <div className="flex items-center gap-2">
                           <span className="text-2xl font-bold text-[#1B2B41]">
                             {hotelReviews.length > 0
@@ -1020,7 +1089,7 @@ const UserDashboard = () => {
                       {hotelReviews.length === 0 ? (
                         <div className="py-12 bg-slate-50 rounded-2xl text-center border border-dashed border-slate-200">
                           <span className="material-symbols-outlined text-slate-300 text-4xl mb-3">rate_review</span>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">No verified feedback dossiers in registry.</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">No verified reviews in our registry yet.</p>
                         </div>
                       ) : (
                         <div className="space-y-6">
@@ -1051,7 +1120,7 @@ const UserDashboard = () => {
 
                     {/* Geographical Context */}
                     <section className="space-y-6">
-                      <h4 className="text-sm font-bold text-[#1B2B41] uppercase tracking-widest border-l-4 border-[#B88E2F] pl-4 font-inter">Location Context</h4>
+                      <h4 className="text-sm font-bold text-[#1B2B41] uppercase tracking-widest border-l-4 border-[#B88E2F] pl-4 font-inter">Hotel Location</h4>
                       <div className="h-[350px] shadow-sm rounded-2xl overflow-hidden relative group">
                         <MapContainer
                           center={[selectedHotel.latitude, selectedHotel.longitude]}
@@ -1072,7 +1141,7 @@ const UserDashboard = () => {
                             className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg border border-slate-100 shadow-xl text-[10px] font-bold text-[#1B2B41] flex items-center gap-2 hover:bg-[#1B2B41] hover:text-white transition-all transform hover:scale-105"
                           >
                             <span className="material-symbols-outlined text-sm">open_in_full</span>
-                            EXPAND RESOLUTION
+                            OPEN FULL MAP
                           </button>
                           <a
                             href={`https://www.google.com/maps/dir/?api=1&destination=${selectedHotel.latitude},${selectedHotel.longitude}`}
@@ -1086,17 +1155,17 @@ const UserDashboard = () => {
                         </div>
 
                         <div className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg border border-slate-100 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity">
-                          <p className="text-[10px] font-bold text-[#1B2B41]">LIVE_INTERACTIVE_NODE</p>
+                          <p className="text-[10px] font-bold text-[#1B2B41]">INTERACTIVE MAP</p>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-1">North Reference</span>
-                          <p className="text-xs font-mono font-bold text-[#1B2B41]">{Number(selectedHotel.latitude)?.toFixed(6) || 'N/A'}</p>
+                          <p className="text-xs font-mono font-bold text-[#1B2B41]">{Number(selectedHotel.latitude)?.toFixed(6) || '---'}</p>
                         </div>
                         <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-1">East Reference</span>
-                          <p className="text-xs font-mono font-bold text-[#1B2B41]">{Number(selectedHotel.longitude)?.toFixed(6) || 'N/A'}</p>
+                          <p className="text-xs font-mono font-bold text-[#1B2B41]">{Number(selectedHotel.longitude)?.toFixed(6) || '---'}</p>
                         </div>
                       </div>
                     </section>
@@ -1109,7 +1178,7 @@ const UserDashboard = () => {
                         <div className="flex items-center justify-between border-b border-slate-50 pb-6">
                           <div>
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Starting From</span>
-                            <span className="text-3xl font-bold text-[#1B2B41]">NRS {rooms[0]?.base_price || '---'}</span>
+                            <span className="text-3xl font-bold text-[#1B2B41]">NRS {rooms.length > 0 ? Math.min(...rooms.map(r => Number(r.base_price))).toFixed(2) : '---'}</span>
                             <span className="text-xs text-slate-400 font-semibold italic ml-1">/ Night</span>
                           </div>
                         </div>
@@ -1145,24 +1214,40 @@ const UserDashboard = () => {
                             </div>
                           </div>
 
-                          <div className="group">
-                            <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Guests & Occupancy</label>
-                            <div className="relative">
-                              <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-xl text-slate-300 group-focus-within:text-[#B88E2F] transition-colors">group</span>
-                              <select
-                                value={numGuests}
-                                onChange={(e) => setNumGuests(parseInt(e.target.value))}
-                                className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] focus:bg-white pl-12 pr-8 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl cursor-pointer appearance-none"
-                              >
-                                {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n} {n === 1 ? 'Guest' : 'Guests'}</option>)}
-                              </select>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="group">
+                              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Rooms Needed</label>
+                              <div className="relative">
+                                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-xl text-slate-300 group-focus-within:text-[#B88E2F] transition-colors">bed</span>
+                                <select
+                                  value={numRooms}
+                                  onChange={(e) => setNumRooms(parseInt(e.target.value))}
+                                  className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] focus:bg-white pl-12 pr-8 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl cursor-pointer appearance-none"
+                                >
+                                  {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n} {n === 1 ? 'Room' : 'Rooms'}</option>)}
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="group">
+                              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Total Guests</label>
+                              <div className="relative">
+                                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-xl text-slate-300 group-focus-within:text-[#B88E2F] transition-colors">group</span>
+                                <select
+                                  value={numGuests}
+                                  onChange={(e) => setNumGuests(parseInt(e.target.value))}
+                                  className="w-full bg-slate-50 border border-transparent focus:border-[#B88E2F] focus:bg-white pl-12 pr-8 py-3 text-[11px] font-bold uppercase transition-all outline-none rounded-xl cursor-pointer appearance-none"
+                                >
+                                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => <option key={n} value={n}>{n} {n === 1 ? 'Guest' : 'Guests'}</option>)}
+                                </select>
+                              </div>
                             </div>
                           </div>
                         </div>
 
                         {/* Inventory Scroll */}
                         <div className="space-y-4">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1 text-center font-inter">Live Inventory Options</label>
+                          <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1 text-center font-inter">Room Availability</label>
                           <div className="space-y-3 max-h-[220px] overflow-y-auto custom-scrollbar pr-1">
                             {rooms.length === 0 ? (
                               <div className="p-6 bg-slate-50 rounded-xl text-center">
@@ -1184,8 +1269,8 @@ const UserDashboard = () => {
                                     <span className={`text-xs font-bold ${selectedRoom?.room_type_id === room.room_type_id ? 'text-[#F6C768]' : 'text-[#B88E2F]'}`}>NRS {room.base_price}</span>
                                   </div>
                                   <div className="flex justify-between text-[8px] font-bold uppercase opacity-60">
-                                    <span>{room.available_count} Secure Units</span>
-                                    <span>Max Cap: {room.max_occupancy}</span>
+                                    <span>{room.available_count} Rooms Available</span>
+                                    <span>Max Guests: {room.max_occupancy}</span>
                                   </div>
                                 </div>
                               ))
@@ -1197,18 +1282,18 @@ const UserDashboard = () => {
                         <div className="pt-8 border-t border-slate-50 space-y-6">
                           <div className="flex justify-between items-end">
                             <div>
-                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Stay Value</p>
+                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Stay Cost</p>
                               <p className="text-3xl font-bold text-[#1B2B41] tracking-tighter">
-                                {selectedRoom ? `NRS ${(selectedRoom.base_price * Math.max(1, Math.ceil((new Date(bookingDates.checkOut) - new Date(bookingDates.checkIn)) / (1000 * 60 * 60 * 24)))).toLocaleString()}` : '---'}
+                                {selectedRoom ? `NRS ${(selectedRoom.base_price * Math.max(1, Math.ceil((new Date(bookingDates.checkOut) - new Date(bookingDates.checkIn)) / (1000 * 60 * 60 * 24))) * numRooms).toLocaleString()}` : '---'}
                               </p>
                             </div>
                             <div className="text-right">
-                              <p className="text-[9px] font-bold text-[#B88E2F] uppercase tracking-widest">Secure TX</p>
+                              <p className="text-[9px] font-bold text-[#B88E2F] uppercase tracking-widest">Safe Payment</p>
                             </div>
                           </div>
 
                           <button
-                            onClick={handleReserve}
+                            onClick={() => processBooking('khalti')}
                             disabled={isReserving || !selectedRoom}
                             className={`w-full py-4 text-[12px] font-bold uppercase tracking-[0.2em] transition-all rounded-xl shadow-xl transform active:scale-[0.98] ${!selectedRoom
                               ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
@@ -1218,14 +1303,25 @@ const UserDashboard = () => {
                             {isReserving ? (
                               <div className="flex items-center justify-center gap-2">
                                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                <span>Verifying Protocol...</span>
+                                <span>Processing...</span>
                               </div>
                             ) : (
-                              selectedRoom ? 'Reserve Property' : 'Select Unit Preference'
+                              selectedRoom ? 'Secure Payment / Book Now' : 'Select a Room'
                             )}
                           </button>
 
-                          <p className="text-[9px] text-center font-bold text-slate-400 uppercase tracking-widest">Powered by StayNepal Secure Gateway</p>
+                          <button
+                            onClick={() => processBooking('cash')}
+                            disabled={isReserving || !selectedRoom}
+                            className={`w-full py-4 text-[12px] font-bold uppercase tracking-[0.2em] transition-all rounded-xl border-2 transform active:scale-[0.98] ${!selectedRoom
+                              ? 'border-slate-100 text-slate-400 cursor-not-allowed'
+                              : 'border-[#1B2B41] text-[#1B2B41] hover:bg-[#1B2B41] hover:text-white'
+                              }`}
+                          >
+                            {isReserving ? 'Processing...' : 'Reserve & Pay at Hotel'}
+                          </button>
+
+                          <p className="text-[9px] text-center font-bold text-slate-400 uppercase tracking-widest">Secure Payment Powered by StayNepal</p>
                         </div>
                       </div>
                     </div>
@@ -1253,10 +1349,10 @@ const UserDashboard = () => {
             </div>
             <div className="flex items-center gap-10">
               <div className="hidden md:flex flex-col items-end">
-                <span className="text-[8px] font-bold text-[#A0AEC0] uppercase tracking-widest">Target Resolution</span>
+                <span className="text-[8px] font-bold text-[#A0AEC0] uppercase tracking-widest">Location Points</span>
                 <span className="text-[10px] font-bold text-[#B88E2F] uppercase">{Number(selectedHotel.latitude).toFixed(6)}, {Number(selectedHotel.longitude).toFixed(6)}</span>
               </div>
-              <button onClick={() => setIsMapFullScreen(false)} className="px-8 py-3 bg-white text-[#1B2B41] font-bold text-[10px] uppercase tracking-widest rounded-xl">Terminate Overlay</button>
+              <button onClick={() => setIsMapFullScreen(false)} className="px-8 py-3 bg-white text-[#1B2B41] font-bold text-[10px] uppercase tracking-widest rounded-xl">Close Map</button>
             </div>
           </div>
           <div className="flex-1 relative grayscale-[0.8]">
@@ -1274,8 +1370,8 @@ const UserDashboard = () => {
             <div className="bg-[#1B2B41] px-10 py-8 border-b-4 border-[#B88E2F]">
               <div className="flex justify-between items-center">
                 <div>
-                  <h3 className="text-white text-lg font-bold uppercase tracking-[0.2em]">Partner Application</h3>
-                  <p className="text-[9px] text-[#A0AEC0] font-bold uppercase tracking-[0.3em] mt-2">Submit Property for Verification</p>
+                  <h3 className="text-white text-lg font-bold uppercase tracking-[0.2em]">List Your Hotel</h3>
+                  <p className="text-[9px] text-[#A0AEC0] font-bold uppercase tracking-[0.3em] mt-2">Send your hotel details to our team</p>
                 </div>
                 <button onClick={() => setShowRequestHotelModal(false)} className="text-[#A0AEC0] hover:text-white transition-colors">
                   <span className="material-symbols-outlined">close</span>
@@ -1287,7 +1383,7 @@ const UserDashboard = () => {
               <form onSubmit={handleRequestHotelSubmit} className="space-y-6">
                 <div className="space-y-4">
                   <div className="group">
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Property Name</label>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Hotel Name</label>
                     <input
                       type="text" required
                       value={requestHotelForm.name}
@@ -1359,7 +1455,7 @@ const UserDashboard = () => {
                   </div>
 
                   <div className="group">
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Property Image</label>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-2 px-1">Hotel Image</label>
                     <input
                       type="file"
                       accept="image/*"
@@ -1373,13 +1469,14 @@ const UserDashboard = () => {
                   type="submit"
                   className="w-full py-5 bg-[#B88E2F] text-white text-[12px] font-bold uppercase tracking-[0.3em] hover:bg-[#9E7A28] transition-all rounded-xl shadow-lg transform active:scale-[0.98]"
                 >
-                  Submit Application
+                  Send Request
                 </button>
               </form>
             </div>
           </div>
         </div>
       )}
+      <Footer />
     </div>
   );
 };

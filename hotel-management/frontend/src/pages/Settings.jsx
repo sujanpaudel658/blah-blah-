@@ -110,7 +110,7 @@ const Settings = () => {
         <AdminLayout
             user={user}
             title="SYSTEM SETTINGS"
-            subtitle="ADMINISTRATIVE CONFIGURATION"
+            subtitle="MANAGE SETTINGS"
             onLogout={handleLogout}
         >
             <div className="max-w-4xl space-y-8 pb-12">
@@ -125,11 +125,11 @@ const Settings = () => {
                     <div className="admin-card bg-white flex flex-col">
                         <div className="p-6 border-b border-[#F1F1F1]">
                             <span className="admin-label">User Identity</span>
-                            <h3 className="text-lg font-bold text-[#1B2B41] uppercase tracking-tight">Administrative Profile</h3>
+                            <h3 className="text-lg font-bold text-[#1B2B41] uppercase tracking-tight">Main Profile</h3>
                         </div>
                         <form onSubmit={handleUpdateProfile} className="p-8 space-y-6">
                             <div className="form-group">
-                                <label className="admin-label">Full Legal Name</label>
+                                <label className="admin-label">Full Name</label>
                                 <input
                                     required
                                     name="name"
@@ -139,7 +139,7 @@ const Settings = () => {
                                 />
                             </div>
                             <div className="form-group">
-                                <label className="admin-label">System Email Address</label>
+                                <label className="admin-label">Email Address</label>
                                 <input
                                     required
                                     type="email"
@@ -154,7 +154,7 @@ const Settings = () => {
                                 disabled={isSaving}
                                 className="admin-button admin-button-primary w-full h-11 uppercase tracking-widest text-[11px]"
                             >
-                                {isSaving ? 'SYNCHRONIZING...' : 'COMMIT PROFILE UPDATES'}
+                                {isSaving ? 'SAVING...' : 'SAVE CHANGES'}
                             </button>
                         </form>
                     </div>
@@ -163,11 +163,11 @@ const Settings = () => {
                     <div className="admin-card bg-white flex flex-col">
                         <div className="p-6 border-b border-[#F1F1F1]">
                             <span className="admin-label">Access Control</span>
-                            <h3 className="text-lg font-bold text-[#1B2B41] uppercase tracking-tight">Security Credentials</h3>
+                            <h3 className="text-lg font-bold text-[#1B2B41] uppercase tracking-tight">Change Password</h3>
                         </div>
                         <form onSubmit={handleUpdatePassword} className="p-8 space-y-6">
                             <div className="form-group">
-                                <label className="admin-label">Current Passkey</label>
+                                <label className="admin-label">Current Password</label>
                                 <input
                                     required
                                     type="password"
@@ -178,7 +178,7 @@ const Settings = () => {
                                 />
                             </div>
                             <div className="form-group">
-                                <label className="admin-label">New Passkey</label>
+                                <label className="admin-label">New Password</label>
                                 <input
                                     required
                                     type="password"
@@ -189,7 +189,7 @@ const Settings = () => {
                                 />
                             </div>
                             <div className="form-group">
-                                <label className="admin-label">Re-verify New Passkey</label>
+                                <label className="admin-label">Confirm New Password</label>
                                 <input
                                     required
                                     type="password"
@@ -204,7 +204,7 @@ const Settings = () => {
                                 disabled={isSaving}
                                 className="admin-button admin-button-secondary w-full h-11 uppercase tracking-widest text-[11px]"
                             >
-                                {isSaving ? 'VERIFYING...' : 'UPDATE ACCESS CREDENTIALS'}
+                                {isSaving ? 'SAVING...' : 'UPDATE PASSWORD'}
                             </button>
                         </form>
                     </div>
@@ -214,16 +214,16 @@ const Settings = () => {
                 <div className="admin-card bg-white">
                     <div className="p-6 border-b border-[#F1F1F1]">
                         <span className="admin-label">Technical Environment</span>
-                        <h3 className="text-lg font-bold text-[#1B2B41] uppercase tracking-tight">Node Topology</h3>
+                        <h3 className="text-lg font-bold text-[#1B2B41] uppercase tracking-tight">System Info</h3>
                     </div>
                     <div className="p-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                         <div>
                             <span className="admin-label">Protocol Version</span>
-                            <p className="text-xs font-bold text-[#1B2B41]">4.5.12-FINAL</p>
+                            <p className="text-xs font-bold text-[#1B2B41]">v4.5.12</p>
                         </div>
                         <div>
                             <span className="admin-label">Cloud Status</span>
-                            <p className="text-xs font-bold text-[#108548]">SYNCHRONIZED</p>
+                            <p className="text-xs font-bold text-[#108548]">CONNECTED</p>
                         </div>
                         <div>
                             <span className="admin-label">Account Role</span>

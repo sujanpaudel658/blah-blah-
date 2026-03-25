@@ -196,12 +196,38 @@ body {
 
 /* ─── Animations ─── */
 .fade-in {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+.slant-glow {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  transform: skewX(-20deg);
+  transition: transform 0.7s ease;
+  pointer-events: none;
+}
+
+.group:hover .slant-glow {
+  transform: skewX(-20deg) translateX(400%);
+}
+
+.dark-date-input::-webkit-calendar-picker-indicator {
+  filter: invert(0.8) sepia(50%) saturate(1000%) hue-rotate(10deg);
+  cursor: pointer;
 }
 
 /* ─── Leaflet Routing Styling ─── */

@@ -5,6 +5,26 @@ const { getAllHotels, updateHotel } = require('../controllers/superAdminControll
 const { requestHotel } = require('../controllers/hotelController');
 const { protect } = require('../middleware/auth');
 
+// Public: Get counts for landing page stats
+router.get('/public/stats', async (req, res) => {
+  try {
+    const [[hotels]] = await db.query('SELECT COUNT(*) as count FROM hotels');
+    const [[reviews]] = await db.query('SELECT COUNT(*) as count FROM reviews');
+    const [[guests]] = await db.query('SELECT COUNT(*) as count FROM users WHERE role = "guest"');
+    
+    res.json({
+      success: true,
+      stats: {
+        hotels: hotels.count || 0,
+        reviews: reviews.count || 0,
+        guests: guests.count || 0
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch public stats' });
+  }
+});
+
 // Protected: Request to list new hotel (User)
 router.post('/request', protect, requestHotel);
 

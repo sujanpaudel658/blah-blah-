@@ -100,7 +100,7 @@ const RoomManagement = () => {
       });
 
       if (res.data.success) {
-        setSuccessMessage(isEditing ? 'Unit updated successfully.' : 'Unit initialized.');
+        setSuccessMessage(isEditing ? 'Room updated successfully.' : 'Room Assigned.');
         setShowFormModal(false);
         fetchData(user?.hotel_id);
         if (isEditing) {
@@ -110,7 +110,7 @@ const RoomManagement = () => {
       }
     } catch (error) {
       console.error('Save error:', error);
-      alert('Transaction failure: Room record not committed.');
+      alert('Error: Room record not saved.');
     }
   };
 
@@ -146,6 +146,7 @@ const RoomManagement = () => {
     let matchesFilter = true;
     if (filter === 'vacant') matchesFilter = room?.is_occupied === 0 && room?.status === 'available';
     if (filter === 'occupied') matchesFilter = room?.is_occupied > 0;
+    if (filter === 'booked') matchesFilter = room?.is_occupied === 0 && room?.status === 'booked';
     if (filter === 'maintenance') matchesFilter = room?.status === 'maintenance';
 
     return matchesSearch && matchesFilter;
@@ -170,6 +171,7 @@ const RoomManagement = () => {
     total: (rooms || []).length,
     vacant: (rooms || []).filter(r => r?.is_occupied === 0 && r?.status === 'available').length,
     occupied: (rooms || []).filter(r => r?.is_occupied > 0).length,
+    booked: (rooms || []).filter(r => r?.is_occupied === 0 && r?.status === 'booked').length,
     maintenance: (rooms || []).filter(r => r?.status === 'maintenance').length
   };
 
@@ -179,7 +181,7 @@ const RoomManagement = () => {
     <AdminLayout
       user={user}
       title="ROOM INVENTORY"
-      subtitle="REAL-TIME PROPERTY MAP"
+      subtitle="REAL-TIME HOTEL MAP"
       onLogout={handleLogout}
     >
       <div className="flex flex-col lg:flex-row gap-8 pb-12">
@@ -189,13 +191,16 @@ const RoomManagement = () => {
             <span className="admin-label mb-3">Filter Catalog</span>
             <div className="space-y-1">
               <button onClick={() => setFilter('all')} className={`w-full text-left px-3 py-2 text-xs font-bold uppercase transition-colors rounded-sm flex justify-between ${filter === 'all' ? 'bg-[#1B2B41] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'}`}>
-                <span>All Units</span> <span>{stats.total}</span>
+                <span>All Rooms</span> <span>{stats.total}</span>
               </button>
               <button onClick={() => setFilter('vacant')} className={`w-full text-left px-3 py-2 text-xs font-bold uppercase transition-colors rounded-sm flex justify-between ${filter === 'vacant' ? 'bg-[#108548] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'}`}>
                 <span>Vacant</span> <span>{stats.vacant}</span>
               </button>
               <button onClick={() => setFilter('occupied')} className={`w-full text-left px-3 py-2 text-xs font-bold uppercase transition-colors rounded-sm flex justify-between ${filter === 'occupied' ? 'bg-[#B91C1C] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'}`}>
                 <span>Occupied</span> <span>{stats.occupied}</span>
+              </button>
+              <button onClick={() => setFilter('booked')} className={`w-full text-left px-3 py-2 text-xs font-bold uppercase transition-colors rounded-sm flex justify-between ${filter === 'booked' ? 'bg-[#3B82F6] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'}`}>
+                <span>Booked</span> <span>{stats.booked}</span>
               </button>
               <button onClick={() => setFilter('maintenance')} className={`w-full text-left px-3 py-2 text-xs font-bold uppercase transition-colors rounded-sm flex justify-between ${filter === 'maintenance' ? 'bg-[#A36B00] text-white' : 'text-[#64748B] hover:bg-[#F1F5F9]'}`}>
                 <span>In Repair</span> <span>{stats.maintenance}</span>
@@ -239,7 +244,7 @@ const RoomManagement = () => {
                 }}
                 className="admin-button admin-button-primary h-10 px-6 uppercase tracking-widest text-[11px]"
               >
-                Initialize Unit
+                A
               </button>
             </div>
           </div>
@@ -264,6 +269,7 @@ const RoomManagement = () => {
                       const status = room?.status;
                       let color = '#108548';
                       if (isOccupied) color = '#B91C1C';
+                      else if (status === 'booked') color = '#3B82F6';
                       else if (status === 'maintenance') color = '#A36B00';
 
                       return (
@@ -288,9 +294,9 @@ const RoomManagement = () => {
               <table className="admin-table">
                 <thead>
                   <tr>
-                    <th>Unit ID</th>
+                    <th>Room Number</th>
                     <th>Floor</th>
-                    <th>Property Category</th>
+                    <th>Hotel Category</th>
                     <th>Sync Status</th>
                     <th className="text-right">Actions</th>
                   </tr>
@@ -302,7 +308,7 @@ const RoomManagement = () => {
                       <td className="text-[#64748B]">{room.floor || '0'}</td>
                       <td className="text-[#64748B] font-medium">{room.type_name}</td>
                       <td>
-                        <span className={`status-badge ${room.is_occupied > 0 ? 'bg-red-50 text-[#B91C1C]' : (room.status === 'maintenance' ? 'bg-amber-50 text-[#A36B00]' : 'bg-emerald-50 text-[#108548]')}`}>
+                        <span className={`status-badge ${room.is_occupied > 0 ? 'bg-red-50 text-[#B91C1C]' : (room.status === 'booked' ? 'bg-blue-50 text-[#3B82F6]' : (room.status === 'maintenance' ? 'bg-amber-50 text-[#A36B00]' : 'bg-emerald-50 text-[#108548]'))}`}>
                           {room.is_occupied > 0 ? 'Occupied' : room.status}
                         </span>
                       </td>
@@ -327,7 +333,7 @@ const RoomManagement = () => {
           <div className="bg-white h-full w-full max-w-lg shadow-xl border-l border-[#E2E2E2] fade-in flex flex-col">
             <header className="bg-[#1B2B41] px-8 py-6 flex items-center justify-between text-white shrink-0">
               <div>
-                <h3 className="text-lg font-bold uppercase tracking-widest">{isEditing ? 'Sync Unit Config' : 'Unit Initialization'}</h3>
+                <h3 className="text-lg font-bold uppercase tracking-widest">{isEditing ? 'Sync Unit Config' : 'Assign Unit '}</h3>
                 <p className="text-[10px] text-[#A0AEC0] mt-0.5 font-bold uppercase tracking-widest">Inventory Management Terminal</p>
               </div>
               <button onClick={() => setShowFormModal(false)} className="w-8 h-8 flex items-center justify-center hover:bg-white/10 transition-colors">
@@ -348,7 +354,7 @@ const RoomManagement = () => {
               </div>
 
               <div className="form-group">
-                <label className="admin-label">Logical Category (Property Type)</label>
+                <label className="admin-label">Logical Category (Hotel Type)</label>
                 <select required name="room_type_id" value={formData.room_type_id} onChange={handleFormChange} className="admin-input font-semibold text-[#1B2B41]">
                   <option value="">-- SELECT CLASSIFICATION --</option>
                   {roomTypes.map(rt => (<option key={rt.id} value={rt.id}>{rt.name.toUpperCase()}</option>))}
@@ -370,8 +376,8 @@ const RoomManagement = () => {
             </form>
 
             <footer className="p-8 border-t border-[#F1F1F1] bg-[#F9FAFB] flex gap-3 shrink-0">
-              <button type="button" onClick={() => setShowFormModal(false)} className="flex-1 admin-button admin-button-secondary h-12 uppercase tracking-widest">Abort</button>
-              <button onClick={handleSave} className="flex-[2] admin-button admin-button-primary h-12 uppercase tracking-widest">Commit Transaction</button>
+              <button type="button" onClick={() => setShowFormModal(false)} className="flex-1 admin-button admin-button-secondary h-12 uppercase tracking-widest font-black">CANCEL</button>
+              <button onClick={handleSave} className="flex-[2] admin-button admin-button-primary h-12 uppercase tracking-widest font-black">SAVE ROOM</button>
             </footer>
           </div>
         </div>

@@ -7,7 +7,9 @@ const {
     cancelBooking,
     manualConfirmBooking,
     checkInBooking,
-    checkOutBooking
+    checkOutBooking,
+    generateQRToken,
+    scanCheckIn
 } = require('../controllers/paymentController');
 const { protect, requireRole } = require('../middleware/auth');
 const db = require('../config/db');
@@ -32,6 +34,10 @@ router.post('/check-in', protect, requireRole(['admin', 'superadmin']), checkInB
 
 // Check-Out Booking (Admin only)
 router.post('/check-out', protect, requireRole(['admin', 'superadmin']), checkOutBooking);
+
+// QR Check-In Endpoints
+router.get('/qr-token/:bookingId', protect, generateQRToken);
+router.post('/scan-checkin', protect, requireRole(['admin', 'superadmin']), scanCheckIn);
 
 // Get bookings for a specific hotel (Admin only)
 router.get('/hotel/:hotelId', protect, requireRole(['admin', 'superadmin']), async (req, res) => {

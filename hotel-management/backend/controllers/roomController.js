@@ -156,9 +156,21 @@ exports.bulkCreateRooms = async (req, res) => {
             return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
 
+        // Parse start_number for prefix and numeric part (e.g., A101 -> prefix='A', num=101)
+        const match = start_number.toString().match(/^([A-Za-z]*)(\d+)$/);
+        const prefix = match ? match[1] : '';
+        const numPart = match ? match[2] : start_number.toString().replace(/^\D+/, '');
+        const sNum = parseInt(numPart) || 1;
+        const padding = numPart.length;
+
         const values = [];
         for (let i = 0; i < count; i++) {
-            values.push([hotel_id, room_type_id, (parseInt(start_number) + i).toString(), floor, 'available', '']);
+            const currentNumStr = (sNum + i).toString().padStart(padding, '0');
+            values.push([hotel_id, room_type_id, prefix + currentNumStr, floor || '1', 'available', '']);
+        }
+
+        if (values.length === 0) {
+            return res.status(400).json({ success: false, message: 'No valid rooms to create' });
         }
 
         await db.query(
@@ -166,9 +178,83 @@ exports.bulkCreateRooms = async (req, res) => {
             [values]
         );
 
-        res.status(201).json({ success: true, message: `${count} rooms created successfully` });
+        res.status(201).json({ success: true, message: `${values.length} rooms created successfully` });
     } catch (error) {
         handleError(res, error, 'Failed to bulk create rooms');
+    }
+};
+
+exports.bulkMultiCreateRooms = async (req, res) => {
+    try {
+        const { hotel_id, room_type_id, batches } = req.body;
+
+        if (req.user.role === 'admin' && req.user.hotel_id !== parseInt(hotel_id)) {
+            return res.status(403).json({ success: false, message: 'Unauthorized' });
+        }
+
+        const roomDataMap = new Map(); // Use map to deduplicate locally while keeping floor/metadata
+        
+        batches.forEach(batch => {
+            const { start_number, count, floor } = batch;
+            if (!start_number || !count) return;
+
+            const match = start_number.toString().match(/^([A-Za-z]*)(\d+)$/);
+            const prefix = match ? match[1] : '';
+            const numPart = match ? match[2] : start_number.toString().replace(/^\D+/, '');
+            const sNum = parseInt(numPart) || 1;
+            const padding = numPart.length;
+
+            for (let i = 0; i < parseInt(count); i++) {
+                const currentNumStr = (sNum + i).toString().padStart(padding, '0');
+                const fullNum = prefix + currentNumStr;
+                // Last one wins if user mistakenly provides same room in different batches
+                roomDataMap.set(fullNum, {
+                    room_number: fullNum,
+                    floor: floor || '1'
+                });
+            }
+        });
+
+        const uniqueNumbers = Array.from(roomDataMap.keys());
+        if (uniqueNumbers.length === 0) {
+            return res.status(400).json({ success: false, message: 'No valid rooms to create' });
+        }
+
+        // Pre-check duplicates in database
+        const [existing] = await db.query(
+            'SELECT room_number FROM rooms WHERE hotel_id = ? AND room_number IN (?)',
+            [hotel_id, uniqueNumbers]
+        );
+        const existingNumbers = existing.map(r => r.room_number);
+        const finalNumbers = uniqueNumbers.filter(n => !existingNumbers.includes(n));
+
+        if (finalNumbers.length === 0) {
+            return res.status(400).json({ success: false, message: `All ${uniqueNumbers.length} rooms already exist in your inventory.` });
+        }
+
+        const values = finalNumbers.map(num => {
+            const data = roomDataMap.get(num);
+            return [
+                parseInt(hotel_id),
+                parseInt(room_type_id),
+                num,
+                data.floor,
+                'available',
+                ''
+            ];
+        });
+
+        await db.query(
+            'INSERT INTO rooms (hotel_id, room_type_id, room_number, floor, status, notes) VALUES ?',
+            [values]
+        );
+
+        res.status(201).json({ 
+            success: true, 
+            message: `${values.length} rooms added successfully.${existingNumbers.length > 0 ? ` (${existingNumbers.length} were skipped as they already exist)` : ''}` 
+        });
+    } catch (error) {
+        handleError(res, error, 'Failed to multi-bulk create rooms');
     }
 };
 

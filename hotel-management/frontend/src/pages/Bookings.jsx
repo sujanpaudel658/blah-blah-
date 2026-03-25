@@ -8,7 +8,7 @@ import QRScanner from '../components/admin/QRScanner';
 /**
  * Bookings Component
  * 
- * Purpose: Dedicated ledger for all property reservations.
+ * Purpose: Dedicated ledger for all hotel reservations.
  * Allows administrators to manage, filter, and verify bookings via QR.
  */
 const Bookings = () => {
@@ -23,7 +23,7 @@ const Bookings = () => {
        1. DATA SYNCHRONIZATION
        -------------------------
        v2.0: Separated from main dashboard to improve render performance 
-       on properties with >500 active records.
+       on hotels with >500 active records.
        ========================= */
     useEffect(() => {
         const init = async () => {
@@ -39,7 +39,7 @@ const Bookings = () => {
             setUser(parsedUser);
 
             try {
-                // Fetch property-specific registry
+                // Fetch hotel-specific registry
                 const res = await axios.get(`http://localhost:5000/api/payments/hotel/${parsedUser.hotel_id}`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
@@ -59,19 +59,39 @@ const Bookings = () => {
     /* =========================
        2. QR VERIFICATION LOGIC
        ========================= */
-    const handleScanSuccess = async (data) => {
+    const handleScanSuccess = async (decodedText) => {
         try {
             const token = localStorage.getItem('token');
-            const res = await axios.get(`http://localhost:5000/api/payments/reference/${data}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await axios.post(`http://localhost:5000/api/payments/scan-checkin`, 
+              { qrToken: decodedText },
+              { headers: { Authorization: `Bearer ${token}` } }
+            );
 
             if (res.data.success) {
-                setScannedBooking(res.data.booking);
+                setScannedBooking({
+                    guest_name: res.data.guest.name,
+                    booking_reference: res.data.booking.reference,
+                    room_number: res.data.room.number,
+                    check_in_date: new Date().toISOString(),
+                    payment_status: 'PAID'
+                });
+                alert(res.data.message);
+                
+                // Refresh local bookings state to reflect the check-in
+                try {
+                    const parsedUser = JSON.parse(localStorage.getItem('user'));
+                    const refreshRes = await axios.get(`http://localhost:5000/api/payments/hotel/${parsedUser.hotel_id}`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    if (refreshRes.data.success) {
+                        setHotelBookings(refreshRes.data.bookings || []);
+                    }
+                } catch(e) {}
             }
         } catch (err) {
-            console.error('Scan verification error:', err);
-            alert('Invalid or missing reservation record. Please verify reference format.');
+            const errorMessage = err.response?.data?.message || 'Could not validate QR code.';
+            alert(`Scan Failed: ${errorMessage}`);
+            setShowScanner(false);
         }
     };
 

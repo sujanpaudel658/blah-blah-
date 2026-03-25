@@ -310,7 +310,7 @@ exports.requestPasswordReset = async (req, res) => {
 
     // Save reset token
     await db.query(
-      'UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE id = ?',
+      'UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?',
       [resetTokenHash, resetTokenExpiry, user.id]
     );
 
@@ -357,7 +357,7 @@ exports.resetPassword = async (req, res) => {
     }
 
     // Check if token has expired
-    if (new Date() > new Date(user.reset_token_expiry)) {
+    if (new Date() > new Date(user.reset_token_expires)) {
       return res.status(400).json({ success: false, message: 'Reset token has expired' });
     }
 

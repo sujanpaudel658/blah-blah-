@@ -16,6 +16,7 @@ const RoomTypeManagement = () => {
     const [roomCount, setRoomCount] = useState(1);
     const [startNumber, setStartNumber] = useState('101');
     const [addMethod, setAddMethod] = useState('list');
+    const [floorBatches, setFloorBatches] = useState([{ floor: '1', start: '101', count: '5' }]);
     const [successMessage, setSuccessMessage] = useState('');
     const [isEditing, setIsEditing] = useState(false);
     const [editingId, setEditingId] = useState(null);
@@ -46,6 +47,28 @@ const RoomTypeManagement = () => {
         setUser(parsedUser);
         fetchRoomTypes(parsedUser.hotel_id);
     }, [navigate]);
+
+    const getBulkPreview = () => {
+        if (!startNumber || !roomCount || isNaN(roomCount) || roomCount <= 0) return 'No rooms to generate';
+        const match = startNumber.toString().match(/^([A-Za-z]*)(\d+)$/);
+        const prefix = match ? match[1] : '';
+        const numPart = match ? match[2] : startNumber.toString().replace(/^\D+/, '');
+        const sNum = parseInt(numPart) || 1;
+        const padding = numPart.length;
+        const count = parseInt(roomCount);
+
+        const rooms = [];
+        const displayLimit = 12;
+        for (let i = 0; i < Math.min(count, displayLimit); i++) {
+            rooms.push(prefix + (sNum + i).toString().padStart(padding, '0'));
+        }
+        if (count > displayLimit) rooms.push('...');
+        if (count > 1) {
+            const lastNum = prefix + (sNum + count - 1).toString().padStart(padding, '0');
+            if (count > displayLimit) rooms.push(lastNum);
+        }
+        return rooms.join(', ');
+    };
 
     const fetchRoomTypes = async (hotelId) => {
         try {
@@ -125,6 +148,7 @@ const RoomTypeManagement = () => {
         });
         setIsEditing(false);
         setEditingId(null);
+        setShowModal(false);
     };
 
     const handleEdit = (type) => {
@@ -182,13 +206,25 @@ const RoomTypeManagement = () => {
                 }, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
-            } else {
+            } else if (addMethod === 'quick') {
                 res = await axios.post('http://localhost:5000/api/rooms/bulk', {
                     hotel_id: user?.hotel_id,
                     room_type_id: selectedType?.id,
                     start_number: startNumber,
                     count: parseInt(roomCount),
                     floor: roomFloor
+                }, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+            } else {
+                res = await axios.post('http://localhost:5000/api/rooms/multi-bulk', {
+                    hotel_id: user?.hotel_id,
+                    room_type_id: selectedType?.id,
+                    batches: floorBatches.map(b => ({
+                        floor: b.floor,
+                        start_number: b.start,
+                        count: parseInt(b.count)
+                    }))
                 }, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
@@ -221,14 +257,14 @@ const RoomTypeManagement = () => {
         <AdminLayout
             user={user}
             title="ROOM CATEGORIES"
-            subtitle="PROPERTY CONFIGURATION"
+            subtitle="HOTEL CONFIGURATION"
             onLogout={handleLogout}
         >
             <div className="space-y-8 pb-12">
                 <div className="flex justify-between items-center">
                     <div>
-                        <h2 className="text-sm font-bold text-[#1B2B41] uppercase tracking-[0.2em]">Category Registry</h2>
-                        <p className="text-[11px] text-[#64748B] font-medium mt-1">Manage suite types and room allocation protocols.</p>
+                        <h2 className="text-sm font-bold text-[#1B2B41] uppercase tracking-[0.2em]">Room Categories</h2>
+                        <p className="text-[11px] text-[#64748B] font-medium mt-1">Manage your room types and details.</p>
                     </div>
                     <button
                         onClick={() => {
@@ -238,7 +274,7 @@ const RoomTypeManagement = () => {
                         className="admin-button admin-button-primary"
                     >
                         <span className="material-symbols-outlined text-sm">add</span>
-                        CREATE NEW CATEGORY
+                        ADD NEW CATEGORY
                     </button>
                 </div>
 
@@ -318,8 +354,8 @@ const RoomTypeManagement = () => {
                     <div className="bg-white w-full max-w-xl rounded-sm overflow-hidden shadow-xl border border-[#E2E2E2] fade-in">
                         <div className="bg-[#1B2B41] px-6 py-4 flex items-center justify-between text-white border-b border-white/10">
                             <div>
-                                <h3 className="text-base font-bold uppercase tracking-widest">{isEditing ? 'Modify Category' : 'Category Definition'}</h3>
-                                <p className="text-[10px] text-[#A0AEC0] mt-0.5 font-bold uppercase tracking-widest">{isEditing ? `Refining ID: ${editingId}` : 'Logical Suite Configuration'}</p>
+                                <h3 className="text-base font-bold uppercase tracking-widest">{isEditing ? 'Edit Category' : 'New Room Category'}</h3>
+                                <p className="text-[10px] text-[#A0AEC0] mt-0.5 font-bold uppercase tracking-widest">{isEditing ? `ID: ${editingId}` : 'Set up your room type details'}</p>
                             </div>
                             <button onClick={resetForm} className="w-8 h-8 flex items-center justify-center hover:bg-white/10 transition-colors">
                                 <span className="material-symbols-outlined text-sm">close</span>
@@ -364,7 +400,7 @@ const RoomTypeManagement = () => {
                             </div>
 
                             <div className="form-group">
-                                <label className="admin-label">Property Description</label>
+                                <label className="admin-label">Hotel Description</label>
                                 <textarea
                                     name="description"
                                     value={formData.description}
@@ -396,11 +432,11 @@ const RoomTypeManagement = () => {
                             </div>
 
                             <div className="pt-4 flex gap-3">
-                                <button type="submit" className="flex-1 admin-button admin-button-primary h-12 uppercase tracking-widest text-[11px] font-bold">
-                                    {isEditing ? 'Update Registry Entry' : 'Finalize Category Registration'}
+                                <button type="submit" className="flex-1 admin-button admin-button-primary h-12 uppercase tracking-widest text-[11px] font-black">
+                                    {isEditing ? 'UPDATE CATEGORY' : 'CREATE CATEGORY'}
                                 </button>
-                                <button type="button" onClick={resetForm} className="admin-button admin-button-secondary h-12 px-8 uppercase text-[11px] font-bold">
-                                    Cancel
+                                <button type="button" onClick={resetForm} className="admin-button admin-button-secondary h-12 px-10 uppercase text-[11px] font-black">
+                                    CANCEL
                                 </button>
                             </div>
                         </form>
@@ -414,8 +450,8 @@ const RoomTypeManagement = () => {
                     <div className="bg-white w-full max-w-lg rounded-sm overflow-hidden shadow-xl border border-[#E2E2E2] fade-in">
                         <div className="bg-[#1B2B41] px-6 py-4 flex items-center justify-between text-white">
                             <div>
-                                <h3 className="text-base font-bold uppercase tracking-widest">Inventory Allocation</h3>
-                                <p className="text-[10px] text-[#A0AEC0] mt-0.5 font-bold uppercase tracking-widest">Mapping: {selectedType.name}</p>
+                                <h3 className="text-base font-bold uppercase tracking-widest">Assign Rooms</h3>
+                                <p className="text-[10px] text-[#A0AEC0] mt-0.5 font-bold uppercase tracking-widest">Setup for: {selectedType.name}</p>
                             </div>
                             <button onClick={() => setShowRoomsModal(false)} className="w-8 h-8 flex items-center justify-center hover:bg-white/10 transition-colors">
                                 <span className="material-symbols-outlined text-sm">close</span>
@@ -427,22 +463,29 @@ const RoomTypeManagement = () => {
                                 <button
                                     type="button"
                                     onClick={() => setAddMethod('list')}
-                                    className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${addMethod === 'list' ? 'bg-white shadow-sm text-[#1B2B41]' : 'text-[#94A3B8]'}`}
+                                    className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${addMethod === 'list' ? 'bg-white shadow-sm text-[#1B2B41]' : 'text-[#94A3B8]'}`}
                                 >
-                                    Range / Manual List
+                                    List
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setAddMethod('quick')}
-                                    className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors ${addMethod === 'quick' ? 'bg-white shadow-sm text-[#1B2B41]' : 'text-[#94A3B8]'}`}
+                                    className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${addMethod === 'quick' ? 'bg-white shadow-sm text-[#1B2B41]' : 'text-[#94A3B8]'}`}
                                 >
-                                    Batch Generation
+                                    Single Batch
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setAddMethod('multi')}
+                                    className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${addMethod === 'multi' ? 'bg-white shadow-sm text-[#1B2B41]' : 'text-[#94A3B8]'}`}
+                                >
+                                    Floor-wise
                                 </button>
                             </div>
 
-                            {addMethod === 'list' ? (
+                            {addMethod === 'list' && (
                                 <div className="form-group">
-                                    <label className="admin-label">Unit Numbers (Range or List)</label>
+                                    <label className="admin-label">Room Numbers</label>
                                     <textarea
                                         required
                                         value={roomsList}
@@ -454,49 +497,105 @@ const RoomTypeManagement = () => {
                                         Use dash (-) for sequential ranges. Separate distinct units with commas.
                                     </p>
                                 </div>
-                            ) : (
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="form-group">
-                                        <label className="admin-label">Sequence Start</label>
-                                        <input
-                                            required
-                                            type="text"
-                                            value={startNumber}
-                                            onChange={(e) => setStartNumber(e.target.value)}
-                                            className="admin-input"
-                                            placeholder="101"
-                                        />
+                            )}
+
+                            {addMethod === 'quick' && (
+                                <div className="col-span-2 space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="form-group">
+                                            <label className="admin-label">Start Number / ID</label>
+                                            <input
+                                                required
+                                                type="text"
+                                                value={startNumber}
+                                                onChange={(e) => setStartNumber(e.target.value)}
+                                                className="admin-input"
+                                                placeholder="e.g. 101 or A101"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="admin-label">Total Rooms</label>
+                                            <input
+                                                required
+                                                type="number"
+                                                min="1"
+                                                max="100"
+                                                value={roomCount}
+                                                onChange={(e) => setRoomCount(e.target.value)}
+                                                className="admin-input"
+                                            />
+                                        </div>
                                     </div>
                                     <div className="form-group">
-                                        <label className="admin-label">Batch Quantity</label>
+                                        <label className="admin-label">Floor Number</label>
                                         <input
-                                            required
                                             type="number"
-                                            value={roomCount}
-                                            onChange={(e) => setRoomCount(e.target.value)}
+                                            value={roomFloor}
+                                            onChange={(e) => setRoomFloor(e.target.value)}
                                             className="admin-input"
+                                            placeholder="Numerical only"
                                         />
+                                    </div>
+                                    <div className="p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-sm">
+                                        <span className="text-[9px] font-bold text-[#64748B] uppercase tracking-widest block mb-1">Sequence Preview</span>
+                                        <p className="text-[10px] font-bold text-[#1B2B41] break-all">{getBulkPreview()}</p>
                                     </div>
                                 </div>
                             )}
 
-                            <div className="form-group">
-                                <label className="admin-label">Floor Mapping (Optional)</label>
-                                <input
-                                    type="number"
-                                    value={roomFloor}
-                                    onChange={(e) => setRoomFloor(e.target.value)}
-                                    className="admin-input"
-                                    placeholder="Numerical only"
-                                />
-                            </div>
+                            {addMethod === 'multi' && (
+                                <div className="space-y-4">
+                                    <div className="max-h-60 overflow-y-auto space-y-3 pr-1">
+                                        {floorBatches.map((batch, idx) => (
+                                            <div key={idx} className="grid grid-cols-12 gap-2 items-end">
+                                                <div className="col-span-3">
+                                                    <label className="text-[8px] font-bold uppercase text-[#94A3B8] mb-1 block">Floor</label>
+                                                    <input type="number" value={batch.floor} onChange={(e) => {
+                                                        const newBatches = [...floorBatches];
+                                                        newBatches[idx].floor = e.target.value;
+                                                        setFloorBatches(newBatches);
+                                                    }} className="admin-input !h-9 !py-0 !text-xs" />
+                                                </div>
+                                                <div className="col-span-4">
+                                                    <label className="text-[8px] font-bold uppercase text-[#94A3B8] mb-1 block">Start #</label>
+                                                    <input type="text" value={batch.start} onChange={(e) => {
+                                                        const newBatches = [...floorBatches];
+                                                        newBatches[idx].start = e.target.value;
+                                                        setFloorBatches(newBatches);
+                                                    }} className="admin-input !h-9 !py-0 !text-xs font-bold" />
+                                                </div>
+                                                <div className="col-span-3">
+                                                    <label className="text-[8px] font-bold uppercase text-[#94A3B8] mb-1 block">Count</label>
+                                                    <input type="number" value={batch.count} onChange={(e) => {
+                                                        const newBatches = [...floorBatches];
+                                                        newBatches[idx].count = e.target.value;
+                                                        setFloorBatches(newBatches);
+                                                    }} className="admin-input !h-9 !py-0 !text-xs" />
+                                                </div>
+                                                <div className="col-span-2">
+                                                    <button type="button" onClick={() => setFloorBatches(floorBatches.filter((_, i) => i !== idx))} disabled={floorBatches.length === 1} className="w-9 h-9 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-sm disabled:opacity-30">
+                                                        <span className="material-symbols-outlined text-sm">delete</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFloorBatches([...floorBatches, { floor: (parseInt(floorBatches[floorBatches.length - 1]?.floor) + 1).toString() || '1', start: '101', count: '5' }])}
+                                        className="w-full py-2 border-2 border-dashed border-[#E2E2E2] text-[9px] font-bold text-[#64748B] uppercase tracking-widest hover:border-[#1B2B41] hover:text-[#1B2B41] transition-all"
+                                    >
+                                        + Add Floor Row
+                                    </button>
+                                </div>
+                            )}
 
                             <div className="pt-4 flex gap-3">
-                                <button type="submit" className="flex-1 admin-button admin-button-primary h-11 uppercase text-[11px] tracking-widest">
-                                    Commit {addMethod === 'list' ? 'Registry' : 'Batch'} to Inventory
+                                <button type="submit" className="flex-1 admin-button admin-button-primary h-11 uppercase text-[11px] font-black tracking-widest">
+                                    {addMethod === 'list' ? 'ADD LISTED ROOMS' : (addMethod === 'quick' ? 'ADD BATCH' : 'FINALIZE ALL FLOORS')}
                                 </button>
-                                <button type="button" onClick={() => setShowRoomsModal(false)} className="admin-button admin-button-secondary h-11 px-6 uppercase text-[11px]">
-                                    Abort
+                                <button type="button" onClick={() => setShowRoomsModal(false)} className="admin-button admin-button-secondary h-11 px-8 uppercase text-[11px] font-black tracking-widest">
+                                    CANCEL
                                 </button>
                             </div>
                         </form>

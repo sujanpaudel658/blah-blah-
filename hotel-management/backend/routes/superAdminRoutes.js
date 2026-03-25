@@ -7,7 +7,10 @@ const {
   createAdmin,
   getAllGuests,
   getPendingHotels,
-  verifyHotel
+  verifyHotel,
+  getSystemAnalytics,
+  getTransactionLogs,
+  getSystemReport
 } = require('../controllers/superAdminController');
 
 const router = express.Router();
@@ -27,5 +30,10 @@ router.post('/admins', createAdmin);
 
 // guest management
 router.get('/guests', getAllGuests);
+
+// analytics & reports
+router.get('/analytics', getSystemAnalytics);
+router.get('/transactions', getTransactionLogs);
+router.get('/report', getSystemReport);
 
 module.exports = router;

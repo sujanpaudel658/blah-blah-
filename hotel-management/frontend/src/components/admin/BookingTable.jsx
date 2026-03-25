@@ -14,8 +14,7 @@ const BookingTable = ({
 
     const tabs = ['All', 'Confirmed', 'Pending', 'Checked-In', 'Checked-Out'];
 
-    // Registry filtering logic
-    // Expanded from original dense chain for better debugging of tab-vs-search priority
+    // Filtering logic for bookings list
     const filteredBookings = (bookings || []).filter(b => {
         // 1. Category Filter Phase
         const isAll = activeTab === 'All';
@@ -37,8 +36,7 @@ const BookingTable = ({
     });
 
     /**
-     * Map logical booking status to visual enterprise themes.
-     * Note: 'cancelled' and 'refunded' share the red warning theme per 2018 UI guidelines.
+     * Map booking status to status colors.
      */
     const getStatusStyle = (status) => {
         switch (status) {
@@ -102,8 +100,8 @@ const BookingTable = ({
                         <tr>
                             <th className="w-1/4">Guest Details</th>
                             <th>Stay Period</th>
-                            <th>Accommodation</th>
-                            <th>Billing</th>
+                            <th>Room Details</th>
+                            <th>Payment</th>
                             <th className="text-right">Actions</th>
                         </tr>
                     </thead>

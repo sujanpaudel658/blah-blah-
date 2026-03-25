@@ -228,6 +228,77 @@ exports.sendAdminBookingNotification = async (hotelEmail, details) => {
   }
 };
 
+// Send Initial Booking Pending to guest
+exports.sendBookingInitiated = async (email, details) => {
+  try {
+    const mailOptions = {
+      from: process.env.EMAIL_FROM,
+      to: email,
+      subject: `Reservation Received - #${details.bookingReference}`,
+      html: `
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px; border-radius: 24px;">
+          <div style="background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);">
+            <div style="text-align: center; margin-bottom: 30px;">
+              <h2 style="color: #1e293b; margin-top: 20px; font-size: 24px; font-weight: 800;">Reservation Received</h2>
+            </div>
+            
+            <p style="color: #64748b; font-size: 16px; line-height: 1.6;">Hi ${details.userName}, your reservation at <strong>${details.hotelName}</strong> has been received and is pending payment/confirmation!</p>
+            
+            <div style="background-color: #f1f5f9; padding: 25px; border-radius: 16px; margin: 30px 0;">
+              <h3 style="color: #1e293b; font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 15px;">Reservation Details</h3>
+              <table style="width: 100%; font-size: 14px; color: #475569;">
+                <tr><td style="padding: 5px 0;"><strong>Reference:</strong></td><td style="text-align: right;">${details.bookingReference}</td></tr>
+                <tr><td style="padding: 5px 0;"><strong>Room:</strong></td><td style="text-align: right;">${details.roomNumber}</td></tr>
+                <tr><td style="padding: 5px 0;"><strong>Check-in:</strong></td><td style="text-align: right;">${details.checkIn}</td></tr>
+                <tr><td style="padding: 5px 0;"><strong>Check-out:</strong></td><td style="text-align: right;">${details.checkOut}</td></tr>
+                <tr><td style="padding: 5px 0; border-top: 1px solid #e2e8f0; margin-top: 10px;"><strong>Amount Due:</strong></td><td style="text-align: right; border-top: 1px solid #e2e8f0; color: #607AFB; font-weight: 800;">Rs. ${details.amount}</td></tr>
+              </table>
+            </div>
+
+            <p style="color: #64748b; font-size: 14px; text-align: center;">Please complete your payment to fully confirm this booking.</p>
+          </div>
+          <p style="text-align: center; color: #94a3b8; font-size: 11px; margin-top: 20px;">Nepal Stays Hotel Management System</p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+  } catch (error) {
+    console.error('Error sending confirmation email:', error);
+  }
+};
+
+// Send Initial Booking Pending to Hotel Admin
+exports.sendAdminBookingInitiated = async (hotelEmail, details) => {
+  try {
+    const mailOptions = {
+      from: process.env.EMAIL_FROM,
+      to: hotelEmail,
+      subject: `New Reservation Received! - #${details.bookingReference}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; background-color: #10182f; color: white; padding: 40px; border-radius: 16px;">
+          <h2 style="color: #607AFB;">New Reservation Received</h2>
+          <p>Hello Admin, a new reservation has been made for <strong>${details.hotelName}</strong>.</p>
+          
+          <div style="background-color: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px;">
+            <p><strong>Guest Name:</strong> ${details.userName}</p>
+            <p><strong>Room Number:</strong> ${details.roomNumber}</p>
+            <p><strong>Dates:</strong> ${details.checkIn} to ${details.checkOut}</p>
+            <p><strong>Total Amount:</strong> Rs. ${details.amount}</p>
+            <p><strong>Status:</strong> Pending Confirmation / Payment</p>
+          </div>
+          
+          <p style="margin-top: 20px;">This booking is currently pending. If it was made as Pay-At-Hotel, please prepare for their arrival.</p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+  } catch (error) {
+    console.error('Error sending admin notification:', error);
+  }
+};
+
 // Test email connection
 exports.testEmailConnection = async () => {
   try {
