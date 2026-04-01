@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "description": "Hotel Management System",
   "scripts": {
-    "start": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "start": "concurrently -n api,ui -c cyan,magenta \"npm run backend\" \"npm run frontend\"",
     "backend": "cd backend && npm run dev",
     "frontend": "cd frontend && npm start",
+    "build": "cd frontend && npm run build",
     "install-all": "cd backend && npm install && cd ../frontend && npm install"
   },
   "keywords": [],

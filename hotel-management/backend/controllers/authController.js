@@ -1,7 +1,10 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const path = require('path');
 const db = require('../config/db');
 const emailService = require('../services/email.service');
+const { resolveFrontendBase } = require('../utils/resolveFrontendBase');
 const crypto = require('crypto');
 
 // Helper functions
@@ -13,7 +16,8 @@ const formatUser = (user) => ({
   email: user.email,
   phone: user.phone,
   role: user.role,
-  hotel_id: user.hotel_id
+  hotel_id: user.hotel_id,
+  profileImage: user.profile_image || null
 });
 
 const getRedirectPath = (role) => ({
@@ -50,30 +54,55 @@ exports.signup = async (req, res) => {
       [fullName, email, phone, hashedPass, role, hotelId, verificationTokenHash, false]
     );
 
-    // Send verification email
-    try {
-      await emailService.sendVerificationEmail(email, verificationToken, fullName);
-    } catch (emailError) {
-      console.error('Failed to send verification email:', emailError);
-      // Continue signup even if email fails
+    const frontendBase = resolveFrontendBase(req.body.clientOrigin);
+    const emailResult = await emailService.sendVerificationEmail(
+      email,
+      verificationToken,
+      fullName,
+      frontendBase
+    );
+    const verificationEmailSent = !!emailResult.success;
+    if (!verificationEmailSent) {
+      // Keep signup and email delivery in sync: do not leave unverified user rows without a mail path.
+      await db.query('DELETE FROM users WHERE id = ?', [result.insertId]);
+      const message =
+        emailResult.reason === 'not_configured'
+          ? 'Signup failed: email service is not configured. Set SMTP EMAIL_USER/EMAIL_PASS/EMAIL_FROM in backend/.env.'
+          : 'Signup failed: verification email could not be delivered. Please try again.';
+      return res.status(503).json({
+        success: false,
+        message,
+        verificationEmailSent: false
+      });
     }
 
     res.status(201).json({
       success: true,
-      message: 'Account created successfully. Please check your email to verify your account.',
+      message: 'Account created. Check your inbox for a verification link.',
+      verificationEmailSent,
       userId: result.insertId,
       email
     });
   } catch (error) {
     console.error('Signup error:', error);
-    res.status(500).json({ success: false, message: 'Registration failed' });
+    let message = 'Registration failed';
+    if (error.code === 'ER_NO_SUCH_TABLE') {
+      message = 'Database table missing. Run migrations: node scripts/run_pending_migrations.js';
+    } else if (error.code === 'ER_BAD_FIELD_ERROR' || error.code === 'ER_UNKNOWN_COLUMN') {
+      message = 'Database is out of date. Run: node scripts/run_pending_migrations.js';
+    } else if (error.code === 'ECONNREFUSED') {
+      message = 'Cannot connect to the database. Check DB_HOST / DB_PORT in backend/.env';
+    } else if (error.code === 'ER_DATA_TOO_LONG') {
+      message = 'One of the fields is too long (try a shorter phone or name).';
+    }
+    res.status(500).json({ success: false, message });
   }
 };
 
 // Login handler
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, clientOrigin } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password required' });
@@ -86,12 +115,40 @@ exports.login = async (req, res) => {
 
     const user = users[0];
     
-    // Check if user has a password (Google users may not)
+    // Google-only accounts must set password via a tokenized email link.
     if (!user.password) {
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const resetTokenHash = await bcrypt.hash(resetToken, 10);
+      const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
+
+      await db.query(
+        'UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE id = ?',
+        [resetTokenHash, resetTokenExpiry, user.id]
+      );
+
+      const frontendBase = resolveFrontendBase(clientOrigin);
+      const setupMailResult = await emailService.sendSetPasswordEmail(
+        user.email,
+        resetToken,
+        user.full_name,
+        frontendBase
+      );
+
+      if (!setupMailResult.success) {
+        await db.query('UPDATE users SET reset_token = NULL, reset_token_expiry = NULL WHERE id = ?', [user.id]);
+        return res.status(503).json({
+          success: false,
+          requiresPasswordSet: true,
+          message: 'Password setup is temporarily unavailable because setup email could not be sent.'
+        });
+      }
+
       return res.status(400).json({ 
         success: false, 
-        message: 'This account was created with Google Sign-In. Please set a password first.',
+        message: 'This account uses Google Sign-In. We sent a secure password setup link to your email.',
         requiresPasswordSet: true,
+        passwordSetupEmailSent: true,
+        passwordSetupEmail: user.email,
         userId: user.id
       });
     }
@@ -192,7 +249,7 @@ exports.googleAuth = async (req, res) => {
 exports.getMe = async (req, res) => {
   try {
     const [users] = await db.query(
-      'SELECT id, full_name, email, phone, role, hotel_id FROM users WHERE id = ?',
+      'SELECT id, full_name, email, phone, role, hotel_id, profile_image FROM users WHERE id = ?',
       [req.user.id]
     );
 
@@ -207,27 +264,149 @@ exports.getMe = async (req, res) => {
   }
 };
 
+// Update name / email / phone (all authenticated roles)
+exports.updateProfile = async (req, res) => {
+  try {
+    const fullName = (req.body.fullName || req.body.name || '').trim();
+    const email = (req.body.email || '').trim();
+    const phone = req.body.phone != null ? String(req.body.phone).trim() : undefined;
+
+    if (!fullName) {
+      return res.status(400).json({ success: false, message: 'Name is required' });
+    }
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    const [dup] = await db.query('SELECT id FROM users WHERE email = ? AND id != ?', [email, req.user.id]);
+    if (dup.length > 0) {
+      return res.status(400).json({ success: false, message: 'That email is already in use' });
+    }
+
+    await db.query(
+      'UPDATE users SET full_name = ?, email = ?, phone = ? WHERE id = ?',
+      [fullName, email, phone === undefined ? null : phone || null, req.user.id]
+    );
+
+    const [users] = await db.query(
+      'SELECT id, full_name, email, phone, role, hotel_id, profile_image FROM users WHERE id = ?',
+      [req.user.id]
+    );
+
+    res.json({ success: true, user: formatUser(users[0]) });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update profile' });
+  }
+};
+
+// Change password (email/password accounts)
+exports.updatePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Current and new password required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters' });
+    }
+
+    const [users] = await db.query('SELECT password FROM users WHERE id = ?', [req.user.id]);
+    if (!users.length) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    if (!users[0].password) {
+      return res.status(400).json({
+        success: false,
+        message: 'This account has no password set. Use Google sign-in or request a secure password setup link.'
+      });
+    }
+
+    const ok = await bcrypt.compare(currentPassword, users[0].password);
+    if (!ok) {
+      return res.status(400).json({ success: false, message: 'Current password is incorrect' });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE users SET password = ? WHERE id = ?', [hashed, req.user.id]);
+
+    res.json({ success: true, message: 'Password updated' });
+  } catch (error) {
+    console.error('Update password error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update password' });
+  }
+};
+
+exports.uploadProfilePhoto = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No image file received' });
+    }
+
+    const [existing] = await db.query('SELECT profile_image FROM users WHERE id = ?', [req.user.id]);
+    const oldPath = existing[0]?.profile_image;
+    if (oldPath && typeof oldPath === 'string' && oldPath.startsWith('/uploads/profiles/')) {
+      const abs = path.join(__dirname, '..', oldPath.replace(/^\//, ''));
+      try {
+        if (fs.existsSync(abs)) fs.unlinkSync(abs);
+      } catch (e) {
+        console.warn('Could not remove old profile image:', e.message);
+      }
+    }
+
+    const urlPath = `/uploads/profiles/${req.file.filename}`;
+    await db.query('UPDATE users SET profile_image = ? WHERE id = ?', [urlPath, req.user.id]);
+
+    const [users] = await db.query(
+      'SELECT id, full_name, email, phone, role, hotel_id, profile_image FROM users WHERE id = ?',
+      [req.user.id]
+    );
+
+    res.json({ success: true, profileImage: urlPath, user: formatUser(users[0]) });
+  } catch (error) {
+    console.error('Upload profile photo error:', error);
+    res.status(500).json({ success: false, message: 'Failed to upload photo' });
+  }
+};
+
 // Set password for Google users
 exports.setPassword = async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
+    const { token, newPassword } = req.body;
 
-    if (!email || !newPassword) {
-      return res.status(400).json({ success: false, message: 'Email and password required' });
+    if (!token || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Token and password required' });
     }
 
     if (newPassword.length < 6) {
       return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
     }
 
-    const [users] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (users.length === 0) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+    const [users] = await db.query('SELECT * FROM users WHERE reset_token IS NOT NULL');
+
+    let user = null;
+    for (const u of users) {
+      const isValid = await bcrypt.compare(token, u.reset_token);
+      if (isValid) {
+        user = u;
+        break;
+      }
+    }
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired setup token' });
+    }
+
+    if (new Date() > new Date(user.reset_token_expiry)) {
+      return res.status(400).json({ success: false, message: 'Setup token has expired' });
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    
-    await db.query('UPDATE users SET password = ? WHERE email = ?', [hashedPassword, email]);
+
+    await db.query(
+      'UPDATE users SET password = ?, reset_token = NULL, reset_token_expiry = NULL WHERE id = ?',
+      [hashedPassword, user.id]
+    );
 
     res.json({
       success: true,
@@ -290,7 +469,7 @@ exports.verifyEmail = async (req, res) => {
 // Request password reset
 exports.requestPasswordReset = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, clientOrigin } = req.body;
 
     if (!email) {
       return res.status(400).json({ success: false, message: 'Email is required' });
@@ -310,15 +489,25 @@ exports.requestPasswordReset = async (req, res) => {
 
     // Save reset token
     await db.query(
-      'UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?',
+      'UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE id = ?',
       [resetTokenHash, resetTokenExpiry, user.id]
     );
 
+    const frontendBase = resolveFrontendBase(clientOrigin);
     // Send password reset email
-    try {
-      await emailService.sendPasswordResetEmail(email, resetToken, user.full_name);
-    } catch (emailError) {
-      console.error('Failed to send password reset email:', emailError);
+    const resetMailResult = await emailService.sendPasswordResetEmail(
+      email,
+      resetToken,
+      user.full_name,
+      frontendBase
+    );
+    if (!resetMailResult.success) {
+      await db.query('UPDATE users SET reset_token = NULL, reset_token_expiry = NULL WHERE id = ?', [user.id]);
+      const message =
+        resetMailResult.reason === 'not_configured'
+          ? 'Password reset is temporarily unavailable because email service is not configured.'
+          : 'Could not send reset email right now. Please try again.';
+      return res.status(503).json({ success: false, message });
     }
 
     res.json({ success: true, message: 'Password reset link has been sent to your email' });
@@ -357,7 +546,7 @@ exports.resetPassword = async (req, res) => {
     }
 
     // Check if token has expired
-    if (new Date() > new Date(user.reset_token_expires)) {
+    if (new Date() > new Date(user.reset_token_expiry)) {
       return res.status(400).json({ success: false, message: 'Reset token has expired' });
     }
 

@@ -12,15 +12,33 @@ import ResetPassword from './pages/ResetPassword';
 import Home from './pages/Home';
 import KhaltiCallback from './pages/KhaltiCallback';
 import Settings from './pages/Settings';
+import GuestProfile from './pages/GuestProfile';
+import TermsAndConditions from './pages/TermsAndConditions';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 import ChatBot from './components/ChatBot';
 
 import Bookings from './pages/Bookings';
+
+// Root Redirect Handler: Resolves where to send a user based on their session status
+const RootRedirect = () => {
+    const userData = localStorage.getItem('user');
+    if (!userData) return <Home />;
+    
+    try {
+        const user = JSON.parse(userData);
+        if (user.role === 'admin') return <Navigate to="/admin/dashboard" replace />;
+        if (user.role === 'superadmin') return <Navigate to="/superadmin/dashboard" replace />;
+        return <Navigate to="/guest/dashboard" replace />;
+    } catch (e) {
+        return <Home />;
+    }
+};
 
 function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={<RootRedirect />} />
         {/* ... existing routes ... */}
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
@@ -32,6 +50,9 @@ function App() {
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/admin/bookings" element={<Bookings />} />
         <Route path="/guest/dashboard" element={<UserDashboard />} />
+        <Route path="/guest/profile" element={<GuestProfile />} />
+        <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="/admin/rooms" element={<RoomManagement />} />
         <Route path="/admin/rooms/:roomId" element={<RoomManagement />} />
         <Route path="/admin/room-types" element={<RoomTypeManagement />} />

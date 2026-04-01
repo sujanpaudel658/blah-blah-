@@ -11,3 +11,4 @@ dist/
 .gemini/
 .cursor/
 backend/uploads/
+.commit-log

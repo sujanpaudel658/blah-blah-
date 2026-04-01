@@ -41,10 +41,15 @@ const Sidebar = ({ onLogout, user }) => {
     return (
         <aside className="w-[240px] bg-[#1A2332] text-[#8896A6] flex flex-col h-screen sticky top-0 shrink-0 select-none">
             {/* Logo */}
-            <div className="h-[72px] flex items-center px-6 border-b border-[#263345]">
+            <div className="h-[92px] flex items-center px-6 border-b border-[#263345]">
                 <Link to={user?.role === 'superadmin' ? "/superadmin/dashboard" : "/admin/dashboard"} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                    <span className="material-symbols-outlined text-[#C4993E]">apartment</span>
-                    <span className="text-white font-bold text-[15px]" style={{ fontFamily: "'Playfair Display', serif" }}>StayNepal</span>
+                    <div className="h-14 w-40 overflow-hidden flex items-center">
+                        <img
+                            src="/images/website_logo.png"
+                            alt="StayNepal"
+                            className="h-full w-auto object-contain origin-left scale-[2.2]"
+                        />
+                    </div>
                 </Link>
             </div>
 

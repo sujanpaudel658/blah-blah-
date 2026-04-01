@@ -110,11 +110,13 @@ router.get('/my-bookings', authenticateToken, async (req, res) => {
     const [bookings] = await db.query(
       `SELECT b.*, h.name as hotel_name, h.address as hotel_address, h.city as hotel_city, h.image as hotel_image, h.phone as hotel_phone,
               r.room_number, rt.name as room_type,
+              bgd.guest_name, bgd.guest_email, bgd.guest_phone, bgd.special_requests,
               (SELECT COUNT(*) FROM reviews WHERE booking_id = b.id) as is_reviewed
        FROM bookings b
        JOIN hotels h ON b.hotel_id = h.id
        JOIN rooms r ON b.room_id = r.id
        JOIN room_types rt ON r.room_type_id = rt.id
+       LEFT JOIN booking_guest_details bgd ON b.id = bgd.booking_id
        WHERE b.user_id = ?
        ORDER BY b.created_at DESC`,
       [req.user.id]

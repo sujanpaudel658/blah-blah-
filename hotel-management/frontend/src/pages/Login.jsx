@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
+import { API_URL } from '../config/api';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -62,7 +63,7 @@ const Login = () => {
     try {
       setLoading(true);
       setError('');
-      const res = await axios.post('http://localhost:5000/api/auth/google', { credential: response.credential });
+      const res = await axios.post(`${API_URL}/auth/google`, { credential: response.credential });
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
       navigate(res.data.redirectPath || '/guest/dashboard');
@@ -79,7 +80,7 @@ const Login = () => {
     if (!email || !password) { setError('Please enter your email and password.'); return; }
     setLoading(true);
     try {
-      const res = await axios.post('http://localhost:5000/api/auth/login', { email, password });
+      const res = await axios.post(`${API_URL}/auth/login`, { email, password });
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
       navigate(res.data.redirectPath || '/guest/dashboard');
@@ -102,7 +103,7 @@ const Login = () => {
     if (newPassword !== confirmPassword) { setPasswordSetError('Passwords do not match.'); return; }
     setLoading(true);
     try {
-      await axios.post('http://localhost:5000/api/auth/set-password', { email: passwordSetEmail, newPassword });
+      await axios.post(`${API_URL}/auth/set-password`, { email: passwordSetEmail, newPassword });
       alert('Password set successfully! You can now sign in.');
       setShowPasswordSet(false);
     } catch (err) {
@@ -118,7 +119,10 @@ const Login = () => {
     setForgotPasswordSuccess('');
     setLoading(true);
     try {
-      const res = await axios.post('http://localhost:5000/api/auth/request-password-reset', { email: forgotPasswordEmail });
+      const res = await axios.post(`${API_URL}/auth/request-password-reset`, {
+        email: forgotPasswordEmail,
+        clientOrigin: typeof window !== 'undefined' ? window.location.origin : undefined,
+      });
       setForgotPasswordSuccess(res.data.message || 'Check your email for recovery instructions.');
     } catch (err) {
       setForgotPasswordError(err.response?.data?.message || 'Could not send recovery email.');
@@ -138,8 +142,11 @@ const Login = () => {
           {/* Brand */}
           <div className="mb-10">
             <div className="flex items-center gap-2 mb-6">
-              <span className="material-symbols-outlined text-[#C4993E] text-[22px]">apartment</span>
-              <span className="font-bold text-[16px] text-[#1A2332]" style={{ fontFamily: "'Playfair Display', serif" }}>StayNepal</span>
+              <img
+                src="/images/website_logo.png"
+                alt="StayNepal"
+                className="h-16 w-auto max-w-[220px] object-contain"
+              />
             </div>
             <h1 className="text-3xl font-bold text-[#1A2332] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>Welcome back</h1>
             <p className="text-[15px] text-[#6B7B8D]">Sign in to manage your bookings and explore new destinations.</p>

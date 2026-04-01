@@ -1,0 +1,69 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: hotel_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: nepal_stays
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hotel_backend
+    restart: always
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules # Anonymous volume to preserve container's node_modules
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override .env so the backend container talks to the db service (same compose stack)
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASSWORD=root
+      - DB_NAME=nepal_stays
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hotel_frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # Anonymous volume to preserve container's node_modules
+    env_file:
+      - ./frontend/.env
+    environment:
+      # Listen on all interfaces so phone/LAN can open http://YOUR_LAN_IP:3000
+      - HOST=0.0.0.0
+      # Dev server proxies to the backend container (not localhost inside the frontend container)
+      - PROXY_TARGET=http://backend:5000
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      # Omit REACT_APP_BACKEND_URL → browser uses /api and /uploads on same host:port as the SPA
+      - WDS_SOCKET_HOST=localhost
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:

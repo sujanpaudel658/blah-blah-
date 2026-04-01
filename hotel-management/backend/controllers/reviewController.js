@@ -68,7 +68,7 @@ exports.getHotelReviews = async (req, res) => {
 
     try {
         const [reviews] = await db.query(
-            `SELECT r.*, u.full_name as reviewer_name, b.status as booking_status
+            `SELECT r.*, u.full_name as reviewer_name, u.profile_image as reviewer_profile_image, b.status as booking_status
        FROM reviews r 
        JOIN users u ON r.user_id = u.id 
        JOIN bookings b ON r.booking_id = b.id
@@ -110,7 +110,7 @@ exports.getBookingReview = async (req, res) => {
 exports.getFeaturedReviews = async (req, res) => {
     try {
         const [reviews] = await db.query(
-            `SELECT r.*, u.full_name as reviewer_name, h.name as hotel_name, b.status as booking_status
+            `SELECT r.*, u.full_name as reviewer_name, u.profile_image as reviewer_profile_image, h.name as hotel_name, b.status as booking_status
        FROM reviews r 
        JOIN users u ON r.user_id = u.id 
        JOIN hotels h ON r.hotel_id = h.id

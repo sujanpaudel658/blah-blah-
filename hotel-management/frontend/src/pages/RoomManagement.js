@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
+import { API_URL } from '../config/api';
 import AdminLayout from '../components/admin/AdminLayout';
 
 const RoomManagement = () => {
@@ -61,10 +62,10 @@ const RoomManagement = () => {
     try {
       const token = localStorage.getItem('token');
       const [roomsRes, typesRes] = await Promise.all([
-        axios.get(`http://localhost:5000/api/rooms?hotelId=${hotelId}`, {
+        axios.get(`${API_URL}/rooms?hotelId=${hotelId}`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        axios.get(`http://localhost:5000/api/rooms/types?hotelId=${hotelId}`, {
+        axios.get(`${API_URL}/rooms/types?hotelId=${hotelId}`, {
           headers: { Authorization: `Bearer ${token}` }
         })
       ]);
@@ -89,8 +90,8 @@ const RoomManagement = () => {
       const token = localStorage.getItem('token');
       const method = isEditing ? 'put' : 'post';
       const url = isEditing
-        ? `http://localhost:5000/api/rooms/${formData.id}`
-        : 'http://localhost:5000/api/rooms';
+        ? `${API_URL}/rooms/${formData.id}`
+        : `${API_URL}/rooms`;
 
       const res = await axios[method](url, {
         ...formData,
@@ -118,7 +119,7 @@ const RoomManagement = () => {
     if (!window.confirm('IRREVERSIBLE ACTION: Confirm deletion of this room record?')) return;
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.delete(`http://localhost:5000/api/rooms/${id}`, {
+      const res = await axios.delete(`${API_URL}/rooms/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data.success) {

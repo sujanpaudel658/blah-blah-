@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
+import { API_URL } from '../config/api';
 
 /**
  * ResetPassword Component
@@ -45,7 +46,7 @@ const ResetPassword = () => {
 
     setLoading(true);
     try {
-      const res = await axios.post('http://localhost:5000/api/auth/reset-password', {
+      const res = await axios.post(`${API_URL}/auth/reset-password`, {
         token,
         newPassword
       });
@@ -64,63 +65,71 @@ const ResetPassword = () => {
     }
   };
 
+  const inputClass = "w-full px-4 py-3.5 bg-[#F4F3F0] border border-[#E8E4DE] rounded-lg text-[#2C3E50] text-[14px] outline-none focus:ring-2 focus:ring-[#C4993E]/30 focus:border-[#C4993E] transition-all placeholder-[#A0A89C]";
+  const labelClass = "block text-[12px] font-semibold text-[#6B7B8D] mb-2 uppercase tracking-wider";
+
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-[#10182F]">
-      {/* Form Interface */}
-      <div className="w-full md:w-1/2 flex flex-col justify-center px-8 md:px-12 py-10 bg-[#10182F] text-white">
-        <div className="max-w-md w-full mx-auto">
-          {/* Header */}
-          <div className="mb-10 flex items-center gap-3">
-            <div>
-              <h2 className="text-xl font-bold">Nepal Stay</h2>
-              <span className="text-[10px] tracking-[.3em] text-[#F6C768] font-bold uppercase">Security Gateway</span>
+    <div className="fixed inset-0 z-50 flex flex-col md:flex-row bg-[#FAF8F5] overflow-hidden">
+      {/* Left: Form Section */}
+      <div className="w-full md:w-1/2 h-full flex flex-col justify-center px-6 md:px-12 bg-[#FAF8F5] overflow-hidden">
+        <div className="max-w-[420px] w-full mx-auto">
+          {/* Brand */}
+          <div className="mb-10">
+            <div className="flex items-center gap-2 mb-6">
+              <div className="h-16 w-44 overflow-hidden flex items-center">
+                <img
+                  src="/images/website_logo.png"
+                  alt="StayNepal"
+                  className="h-full w-auto object-contain origin-left scale-[2.2]"
+                />
+              </div>
             </div>
+            <h1 className="text-3xl font-bold text-[#1A2332] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>Restore Access</h1>
+            <p className="text-[15px] text-[#6B7B8D]">Set a new secure password to regain access to your account.</p>
           </div>
 
-          <h1 className="text-3xl md:text-4xl font-extrabold mb-3">Restore Access</h1>
-          <p className="mb-10 text-[#B0B8D1] text-sm">Synchronize new security parameters for your account node.</p>
-
-          <div className="bg-[#181F36] rounded-2xl shadow-2xl p-8 border border-white/5">
+          {/* Form Card */}
+          <div className="bg-white rounded-2xl shadow-sm border border-[#E8E4DE] p-8">
             {error && (
-              <div className="mb-6 bg-red-500/10 border-l-4 border-red-500 p-4 rounded text-red-200 text-xs font-bold uppercase tracking-widest">
+              <div className="mb-6 bg-[#FDEDED] border-l-3 border-[#C0392B] p-4 rounded-lg text-[#C0392B] text-[13px] font-medium">
                 {error}
               </div>
             )}
 
             {success && (
-              <div className="mb-6 bg-emerald-500/10 border-l-4 border-emerald-500 p-4 rounded text-emerald-200 text-xs font-bold uppercase tracking-widest">
+              <div className="mb-6 bg-[#EDFDF5] border-l-3 border-[#2D8659] p-4 rounded-lg text-[#2D8659] text-[13px] font-medium">
                 {success}
-                <p className="text-[9px] mt-2 opacity-60">Redirecting to login portal...</p>
+                <p className="text-[11px] mt-1 opacity-80">Redirecting to login portal...</p>
               </div>
             )}
 
             {!token ? (
-              <div className="text-center py-6">
-                <p className="text-[#B0B8D1] text-sm mb-6 uppercase tracking-widest font-bold">Invalid or Expired Token.</p>
-                <Link to="/login" className="text-[#6C63FF] font-bold hover:underline underline-offset-4">Return to Entry</Link>
+              <div className="text-center py-6 space-y-4">
+                <p className="text-[#6B7B8D] text-[14px]">Invalid or expired security token.</p>
+                <Link to="/login" className="inline-block text-[#C4993E] font-semibold hover:underline">Return to Sign In</Link>
               </div>
             ) : (
-              <form onSubmit={handleResetSubmit} className="space-y-6">
+              <form onSubmit={handleResetSubmit} className="space-y-5">
                 <div>
-                  <label className="block text-[10px] font-bold text-[#B0B8D1] mb-2 tracking-widest uppercase">New Security Key</label>
+                  <label className={labelClass}>New Password</label>
                   <input
                     type="password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full px-4 py-3 bg-[#232B47] border border-[#232B47] rounded-lg text-white text-sm outline-none focus:ring-2 focus:ring-[#6C63FF] transition-all"
-                    placeholder="Enter new password"
+                    className={inputClass}
+                    placeholder="Create a new password"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-[#B0B8D1] mb-2 tracking-widest uppercase">Confirm Key</label>
+                  <label className={labelClass}>Confirm New Password</label>
                   <input
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full px-4 py-3 bg-[#232B47] border border-[#232B47] rounded-lg text-white text-sm outline-none focus:ring-2 focus:ring-[#6C63FF] transition-all"
-                    placeholder="Verify new password"
+                    className={inputClass}
+                    placeholder="Verify your new password"
                     required
                   />
                 </div>
@@ -128,14 +137,14 @@ const ResetPassword = () => {
                 <button
                   type="submit"
                   disabled={loading || success}
-                  className="w-full bg-[#6C63FF] py-4 rounded-lg font-extrabold text-sm tracking-[.2em] uppercase shadow-lg shadow-[#6C63FF]/20 hover:bg-[#5548C8] active:scale-[0.98] transition-all"
+                  className="w-full bg-[#C4993E] text-white py-3.5 rounded-lg font-semibold text-[14px] hover:bg-[#AE872E] active:scale-[0.99] transition-all shadow-sm"
                 >
-                  {loading ? 'Resynchronizing...' : 'Update Credentials'}
+                  {loading ? 'Updating...' : 'Update Password'}
                 </button>
 
-                <p className="mt-8 text-center text-xs text-[#B0B8D1]">
-                  Identity remembered? {' '}
-                  <Link to="/login" className="text-[#F6C768] font-bold hover:underline transition-all underline-offset-4">Login</Link>
+                <p className="text-center text-[14px] text-[#6B7B8D] pt-2">
+                  Remembered your password?{' '}
+                  <Link to="/login" className="text-[#C4993E] font-semibold hover:underline">Sign In</Link>
                 </p>
               </form>
             )}
@@ -143,20 +152,21 @@ const ResetPassword = () => {
         </div>
       </div>
 
-      {/* Asset Pane */}
-      <div className="hidden md:flex md:w-1/2 h-screen relative items-center justify-center bg-[#181F36] overflow-hidden">
-        <img src="/images/unnamed.png" alt="Security Background" className="absolute inset-0 w-full h-full object-cover object-center opacity-60" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#10182F] via-transparent to-transparent"></div>
+      {/* Right: Visual Section */}
+      <div className="hidden md:flex md:w-1/2 h-full relative items-end justify-start overflow-hidden">
+        <img src="/images/unnamed.png" alt="Hotel" className="absolute inset-0 w-full h-full object-cover object-center" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#1A2332] via-[#1A2332]/30 to-transparent"></div>
 
-        <div className="relative z-10 px-10 lg:px-20 space-y-8">
+        <div className="relative z-10 px-12 pb-16 space-y-4">
           <div className="flex items-center gap-1">
-            {[...Array(5)].map((_, i) => <span key={i} className="text-[#F6C768] text-xl">★</span>)}
+            {[...Array(5)].map((_, i) => <span key={i} className="text-[#C4993E] text-lg">★</span>)}
           </div>
+          <p className="text-2xl font-bold text-white max-w-lg leading-snug" style={{ fontFamily: "'Playfair Display', serif" }}>
+            "Security is our priority. Your data is protected with enterprise-grade encryption."
+          </p>
           <div>
-            <p className="text-2xl lg:text-3xl font-bold text-white max-w-lg mb-6 leading-tight italic">
-              "System stability is anchored in rigorous security protocols and verified access control."
-            </p>
-            <span className="text-[12px] font-extrabold tracking-[.4em] text-[#F6C768] uppercase">Integrity in Architecture</span>
+            <p className="text-[14px] text-white/80 font-medium">— StayNepal Security Team</p>
+            <p className="text-[12px] text-[#C4993E] font-semibold mt-1">Trusted By 1000+ Properties</p>
           </div>
         </div>
       </div>

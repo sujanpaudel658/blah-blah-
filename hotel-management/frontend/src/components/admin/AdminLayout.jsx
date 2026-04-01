@@ -1,5 +1,6 @@
 import React from 'react';
 import Sidebar from './Sidebar';
+import { getImageUrl } from '../../utils/helpers';
 
 const AdminLayout = ({ children, user, hotel, onLogout, title, subtitle }) => {
     return (
@@ -39,8 +40,12 @@ const AdminLayout = ({ children, user, hotel, onLogout, title, subtitle }) => {
                                     {user?.role === 'superadmin' ? 'Administrator' : 'Hotel Manager'}
                                 </p>
                             </div>
-                            <div className="w-9 h-9 bg-[#1A2332] flex items-center justify-center text-white rounded-full hover:ring-2 hover:ring-[#C4993E]/20 transition-all cursor-pointer">
-                                <span className="material-symbols-outlined text-[18px]">person</span>
+                            <div className="w-9 h-9 bg-[#1A2332] flex items-center justify-center text-white rounded-full hover:ring-2 hover:ring-[#C4993E]/20 transition-all cursor-pointer overflow-hidden shrink-0">
+                                {user?.profileImage ? (
+                                    <img src={getImageUrl(user.profileImage)} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                    <span className="material-symbols-outlined text-[18px]">person</span>
+                                )}
                             </div>
                         </div>
                     </div>

@@ -1,7 +1,15 @@
 import axios from 'axios';
 
-// API base URL - change this for production
-export const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+/**
+ * If REACT_APP_BACKEND_URL is set → full URL (e.g. production or special setups).
+ * Otherwise → "/api" so the browser uses whatever host opened the app (localhost, LAN IP, etc.).
+ * Dev server / Docker must proxy /api (and /uploads) to the backend.
+ */
+const explicit = (process.env.REACT_APP_BACKEND_URL || '').trim().replace(/\/$/, '');
+export const API_URL = explicit ? `${explicit}/api` : '/api';
+
+/** Empty when using same-origin proxy; used for image paths like /uploads/... */
+export const BACKEND_ORIGIN = explicit;
 
 // Create axios instance with default config
 const api = axios.create({

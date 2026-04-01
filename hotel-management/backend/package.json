@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon --quiet server.js",
+    "db:migrate": "node scripts/run_pending_migrations.js",
+    "seed:offers": "node scripts/seed_notification_offers.js"
   },
   "keywords": [],
   "author": "",

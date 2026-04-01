@@ -160,7 +160,7 @@ const BookingTable = ({
                                                 </>
                                             )}
 
-                                            {booking.status === 'confirmed' && booking.payment_status === 'paid' && (
+                                            {booking.status === 'confirmed' && (
                                                 <button
                                                     onClick={() => onCheckIn && onCheckIn(booking.id)}
                                                     className="admin-button admin-button-secondary py-1 px-3 text-[11px] h-8"
@@ -178,10 +178,19 @@ const BookingTable = ({
                                                 </button>
                                             )}
 
+                                            {!['checked_in', 'checked_out', 'cancelled'].includes(booking.status) && (
+                                                <button
+                                                    onClick={() => onReject && onReject(booking.id)}
+                                                    className="admin-button admin-button-secondary border-red-100 text-[#B91C1C] hover:bg-[#FEE2E2] py-1 px-3 text-[11px] h-8"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            )}
+
                                             {booking.payment_status === 'paid' && !['checked_in', 'checked_out', 'cancelled'].includes(booking.status) && (
                                                 <button
                                                     onClick={() => onRefund && onRefund(booking.id)}
-                                                    className="admin-button admin-button-secondary border-red-100 text-[#B91C1C] hover:bg-[#FEE2E2] py-1 px-3 text-[11px] h-8"
+                                                    className="admin-button admin-button-secondary bg-[#1B2B41] text-[#C4993E] hover:bg-[#263345] py-1 px-3 text-[11px] h-8"
                                                 >
                                                     Refund
                                                 </button>

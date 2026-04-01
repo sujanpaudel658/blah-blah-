@@ -82,13 +82,16 @@ const MapSection = ({
             console.error('Sync failed:', error);
         }
     };
+    const mapCenter = (latitude && longitude) ? [latitude, longitude] : [28.3949, 84.1240];
+    const mapZoom = (latitude && longitude) ? 15 : 6;
+
     return (
         <div className="admin-card overflow-hidden bg-white flex flex-col lg:flex-row h-[500px]">
             {/* Map Area - 60% */}
             <div className="flex-1 relative border-r border-[#E2E2E2]">
                 <MapContainer
-                    center={[latitude, longitude]}
-                    zoom={15}
+                    center={mapCenter}
+                    zoom={mapZoom}
                     style={{ height: '100%', width: '100%' }}
                     scrollWheelZoom={false}
                 >
@@ -104,12 +107,19 @@ const MapSection = ({
                         longitude={longitude}
                         updateCityFromCoords={updateCityFromCoords}
                     />
-                    <MapRecenter center={[latitude, longitude]} showDirections={showDirections} />
+                    <MapRecenter center={mapCenter} showDirections={showDirections} />
                 </MapContainer>
 
                 {isEditing && (
                     <div className="absolute top-4 left-4 z-[401] bg-[#1B2B41] text-white text-[10px] font-bold px-3 py-1.5 rounded-sm shadow-md uppercase tracking-wider">
                         MANUAL OVERRIDE: CLICK OR DRAG TO PIN
+                    </div>
+                )}
+
+                {(!latitude || !longitude) && (
+                    <div className="absolute bottom-4 left-4 right-4 z-[401] bg-[#B88E2F] text-white text-[10px] font-bold px-4 py-3 rounded-sm shadow-xl uppercase tracking-widest flex items-center gap-3">
+                        <span className="material-symbols-outlined text-sm">warning</span>
+                        IMPORTANT: Property location NOT set. Please click on the map to pin your hotel's exact position.
                     </div>
                 )}
             </div>

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-routing-machine';
+import { API_URL } from '../config/api';
 
 // Fix for default marker icon issues in React-Leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -60,9 +62,18 @@ const RoutingEngine = ({ from, to }) => {
 };
 
 const ChatBot = () => {
+    const location = useLocation();
+    const path = location.pathname;
+    const hideOnStaffRoutes =
+        path.startsWith('/admin') || path.startsWith('/superadmin');
+
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([
-        { text: "Hi! I'm your Nepal Stays assistant. How can I help you today?", isBot: true }
+        {
+            text: "Hi! I'm the Nepal Stays assistant. Ask about hotels by city, budget, or ratings — or type \"help\" to see what I can do.",
+            isBot: true,
+            replyMode: 'rules'
+        }
     ]);
     const [inputValue, setInputValue] = useState("");
     const [isLoading, setIsLoading] = useState(false);
@@ -70,6 +81,7 @@ const ChatBot = () => {
     const [isMapFullScreen, setIsMapFullScreen] = useState(false);
     const [mapTarget, setMapTarget] = useState(null);
     const [userLocation, setUserLocation] = useState(null);
+    const [isLocationFallback, setIsLocationFallback] = useState(false);
     const messagesEndRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -86,11 +98,13 @@ const ChatBot = () => {
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
                     setUserLocation([pos.coords.latitude, pos.coords.longitude]);
+                    setIsLocationFallback(false);
                 },
                 (err) => {
                     console.error("Location Access Denied:", err);
-                    // Fallback to Kathmandu center if denied
-                    setUserLocation([27.7172, 85.3240]);
+                    // Fallback to central Nepal instead of specific Kathmandu street
+                    setUserLocation([28.3949, 84.1240]);
+                    setIsLocationFallback(true);
                 }
             );
         }
@@ -101,20 +115,37 @@ const ChatBot = () => {
         if (!inputValue.trim()) return;
 
         const userMessage = inputValue.trim();
+        // Only show location/map actions when the user explicitly asks for them.
+        // This prevents the chat UI from always encouraging map/location-related UI.
+        const lowerMessage = userMessage.toLowerCase();
+        const userWantsLocation =
+            /(map|location|directions|route|coordinates|nearby|where|located|address|city|place|find it)/i.test(lowerMessage) ||
+            // Common phrasing: "hotels in Kathmandu"
+            /\bin\s+[a-zA-Z]/.test(lowerMessage);
+
+        const historyPayload = messages.slice(-8).map((m) => ({
+            role: m.isBot ? 'assistant' : 'user',
+            text: m.text
+        }));
+
         setMessages(prev => [...prev, { text: userMessage, isBot: false }]);
         setInputValue("");
         setIsLoading(true);
 
         try {
-            const response = await axios.post('/api/chatbot/query', {
+            const response = await axios.post(`${API_URL}/chatbot/query`, {
                 message: userMessage,
-                lastHotel: lastHotel
+                lastHotel: lastHotel,
+                lastCity: lastHotel?.city || null,
+                history: historyPayload
             });
             if (response.data.success) {
                 setMessages(prev => [...prev, {
                     text: response.data.reply,
                     isBot: true,
-                    data: response.data.data
+                    data: response.data.data,
+                    showLocationActions: userWantsLocation,
+                    replyMode: response.data.replyMode === 'gemini' ? 'gemini' : 'rules'
                 }]);
                 if (response.data.data) {
                     setLastHotel(response.data.data);
@@ -130,10 +161,16 @@ const ChatBot = () => {
         }
     };
 
+    // Guest-facing only: search tips, hotel info, maps. Staff use the dashboards instead.
+    if (hideOnStaffRoutes) {
+        return null;
+    }
+
     return (
-        <div className="fixed bottom-6 right-6 z-50 font-sans">
+        <div className="fixed bottom-6 right-6 z-[200] font-sans">
             {/* Chat Bubble Toggle */}
             <button
+                type="button"
                 onClick={() => setIsOpen(!isOpen)}
                 className="w-14 h-14 bg-[#1B2B41] text-white rounded-full flex items-center justify-center shadow-xl hover:scale-110 transition-transform duration-200 focus:outline-none"
             >
@@ -150,15 +187,18 @@ const ChatBot = () => {
 
             {/* Chat Window */}
             {isOpen && (
-                <div className="absolute bottom-20 right-0 w-80 md:w-96 bg-white border border-gray-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden fade-in transition-all duration-300 transform origin-bottom-right">
+                <div className="absolute bottom-20 right-0 w-80 md:w-96 max-w-[calc(100vw-2rem)] max-h-[min(32rem,calc(100vh-6rem))] origin-bottom-right bg-white border border-gray-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden fade-in transition-all duration-300 transform">
                     {/* Header */}
-                    <div className="bg-[#1B2B41] p-4 text-white flex items-center justify-between">
+                    <div className="shrink-0 bg-[#1B2B41] p-4 text-white flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <div className="w-8 h-8 bg-[#B88E2F] rounded-full flex items-center justify-center text-xs font-bold">NS</div>
                             <div>
                                 <h3 className="text-sm font-semibold">Nepal Stays Assistant</h3>
-                                <p className="text-[10px] text-gray-300 flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></span> Online
+                                <p className="text-[10px] text-gray-300 leading-tight">
+                                    <span className="inline-flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse shrink-0"></span>
+                                        Verified hotels · instant help
+                                    </span>
                                 </p>
                             </div>
                         </div>
@@ -167,17 +207,22 @@ const ChatBot = () => {
                         </button>
                     </div>
 
-                    {/* Messages Area */}
-                    <div className="flex-1 p-4 h-96 overflow-y-auto bg-gray-50 flex flex-col gap-3 custom-scrollbar">
+                    {/* Messages: min-h-0 so flex child shrinks and scrolls instead of stretching the panel */}
+                    <div className="flex-1 min-h-0 p-4 overflow-y-auto overflow-x-hidden bg-gray-50 flex flex-col gap-3 custom-scrollbar [scrollbar-gutter:stable]">
                         {messages.map((msg, index) => (
                             <div key={index} className={`flex ${msg.isBot ? 'justify-start' : 'justify-end'}`}>
-                                <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${msg.isBot
-                                    ? 'bg-white border border-gray-200 text-[#2D3748] rounded-tl-none'
-                                    : 'bg-[#B88E2F] text-white rounded-tr-none'
-                                    } shadow-sm`}>
-                                    <div>{msg.text}</div>
+                                <div
+                                    className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${
+                                        msg.isBot
+                                            ? (msg.replyMode === 'gemini'
+                                                  ? 'bg-blue-600 text-white border border-blue-700 rounded-tl-none'
+                                                  : 'bg-white border border-gray-200 text-[#2D3748] rounded-tl-none')
+                                            : 'bg-[#B88E2F] text-white rounded-tr-none'
+                                    }`}
+                                >
+                                    <div className={msg.isBot ? 'whitespace-pre-wrap' : ''}>{msg.text}</div>
 
-                                    {msg.isBot && msg.data?.latitude && (
+                                    {msg.isBot && msg.data?.latitude && msg.showLocationActions && (
                                         <button
                                             onClick={() => {
                                                 setMapTarget(msg.data);
@@ -206,7 +251,7 @@ const ChatBot = () => {
                     </div>
 
                     {/* Input Area */}
-                    <form onSubmit={handleSendMessage} className="p-4 border-t border-gray-100 bg-white flex gap-2">
+                    <form onSubmit={handleSendMessage} className="shrink-0 p-4 border-t border-gray-100 bg-white flex gap-2">
                         <input
                             type="text"
                             value={inputValue}
@@ -224,8 +269,8 @@ const ChatBot = () => {
                     </form>
 
                     {/* Quick Suggestions */}
-                    <div className="px-4 pb-4 flex gap-2 overflow-x-auto custom-scrollbar no-scrollbar text-center">
-                        {["Show hotels", "Kathmandu", "Contact info"].map((suggest, i) => (
+                    <div className="shrink-0 px-4 pb-4 flex gap-2 overflow-x-auto custom-scrollbar no-scrollbar text-center">
+                        {["Show hotels", "Contact info"].map((suggest, i) => (
                             <button
                                 key={i}
                                 onClick={() => setInputValue(suggest)}
@@ -281,16 +326,21 @@ const ChatBot = () => {
                                 />
                             )}
 
-                            {userLocation && (
+                            {userLocation && !isLocationFallback && (
                                 <RoutingEngine from={userLocation} to={[mapTarget.latitude, mapTarget.longitude]} />
                             )}
                         </MapContainer>
 
                         <div className="absolute top-4 left-4 z-[1000] flex flex-col gap-2">
                             <div className="bg-[#1B2B41] text-white px-4 py-2 rounded-lg border border-white/10 shadow-xl">
-                                <p className="text-[10px] font-bold tracking-[0.2em]">LIVE_NAVIGATION_PROTOCOL</p>
+                                <p className="text-[10px] font-bold tracking-[0.2em]">{isLocationFallback ? 'GPS_PROTOCOL_OFFLINE' : 'LIVE_NAVIGATION_PROTOCOL'}</p>
                             </div>
-                            {userLocation && (
+                            {isLocationFallback ? (
+                                <div className="bg-red-500/90 backdrop-blur-md px-4 py-2 rounded-lg border border-red-400/50 shadow-xl flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-white text-xs">location_disabled</span>
+                                    <p className="text-[9px] font-bold text-white uppercase">Location access denied. Please enable GPS for real-time routing.</p>
+                                </div>
+                            ) : userLocation && (
                                 <div className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg border border-slate-100 shadow-xl flex items-center gap-2">
                                     <div className="w-2 h-2 rounded-full bg-blue-500"></div>
                                     <p className="text-[9px] font-bold text-[#1B2B41] uppercase">Origin Detected: Current Position</p>

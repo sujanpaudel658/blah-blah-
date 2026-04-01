@@ -5,6 +5,8 @@ import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import Footer from "../components/Footer";
+import { API_URL } from "../config/api";
+import { getImageUrl } from "../utils/helpers";
 
 // Fix for default marker icon issues in React-Leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -41,7 +43,7 @@ const Home = () => {
     const userData = localStorage.getItem('user');
     if (userData) setUser(JSON.parse(userData));
 
-    fetch('http://localhost:5000/api/reviews/featured')
+    fetch(`${API_URL}/reviews/featured`)
       .then(res => res.json())
       .then(data => {
         if (data.success) setExperiences(data.reviews);
@@ -49,7 +51,7 @@ const Home = () => {
       .catch(err => console.error('Error fetching reviews:', err));
 
     // Fetch live landing page stats
-    fetch('http://localhost:5000/api/hotels/public/stats')
+    fetch(`${API_URL}/hotels/public/stats`)
       .then(res => res.json())
       .then(data => {
         if (data.success) setStats(data.stats);
@@ -67,7 +69,7 @@ const Home = () => {
     // Fetch hotel-specific information
     try {
       // 1. Rooms
-      const roomRes = await axios.get(`http://localhost:5000/api/rooms/search?hotelId=${hotel.id}&checkIn=${bookingDates.checkIn}&checkOut=${bookingDates.checkOut}`);
+      const roomRes = await axios.get(`${API_URL}/rooms/search?hotelId=${hotel.id}&checkIn=${bookingDates.checkIn}&checkOut=${bookingDates.checkOut}`);
       if (roomRes.data.success) {
         // Group by type
         const roomsByType = roomRes.data.rooms.reduce((acc, r) => {
@@ -79,7 +81,7 @@ const Home = () => {
       }
 
       // 2. Reviews
-      const reviewRes = await axios.get(`http://localhost:5000/api/reviews/hotel/${hotel.id}`);
+      const reviewRes = await axios.get(`${API_URL}/reviews/hotel/${hotel.id}`);
       if (reviewRes.data.success) {
         setHotelReviews(reviewRes.data.reviews);
       }
@@ -118,7 +120,7 @@ const Home = () => {
     setSearching(true);
     try {
       const query = new URLSearchParams(params).toString();
-      const response = await fetch(`http://localhost:5000/api/rooms/search?${query}`);
+      const response = await fetch(`${API_URL}/rooms/search?${query}`);
       const data = await response.json();
 
       if (data.success) {
@@ -184,13 +186,16 @@ const Home = () => {
     <div className="min-h-screen bg-[#FAF8F5] text-[#2C3E50] antialiased flex flex-col" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       
       {/* ─── Navigation ─── */}
-      <nav className="h-[80px] bg-[#1A2332] sticky top-0 z-50 border-b border-white/5 backdrop-blur-lg">
+      <nav className="h-[92px] bg-[#1A2332] sticky top-0 z-50 border-b border-white/5 backdrop-blur-lg">
         <div className="max-w-7xl mx-auto h-full px-6 flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer group" onClick={handleLogoClick}>
-            <div className="w-10 h-10 bg-[#C4993E] rounded-xl flex items-center justify-center rotate-3 group-hover:rotate-0 transition-transform">
-              <span className="material-symbols-outlined text-white text-[24px]">apartment</span>
+            <div className="h-16 w-44 overflow-hidden flex items-center drop-shadow-sm">
+              <img
+                src="/images/website_logo.png"
+                alt="StayNepal"
+                className="h-full w-auto object-contain origin-left scale-[2.2]"
+              />
             </div>
-            <span className="text-white font-black text-lg tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>StayNepal<span className="text-[#C4993E]">.</span></span>
           </div>
 
           <div className="hidden md:flex items-center gap-10">
@@ -493,12 +498,21 @@ const Home = () => {
                         {exp.comment}
                       </p>
                     </div>
-                    <div className="mt-6 pt-5 border-t border-[#F4F3F0] flex items-center justify-between">
-                      <div>
-                        <p className="text-[13px] font-semibold text-[#1A2332]">{exp.reviewer_name}</p>
-                        <p className="text-[11px] text-[#C4993E] mt-0.5">Stayed at {exp.hotel_name}</p>
+                    <div className="mt-6 pt-5 border-t border-[#F4F3F0] flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {exp.reviewer_profile_image ? (
+                          <img src={getImageUrl(exp.reviewer_profile_image)} alt="" className="w-10 h-10 rounded-full object-cover border border-[#E8E4DE] shrink-0" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-[#1A2332] text-[#C4993E] flex items-center justify-center text-sm font-bold shrink-0">
+                            {(exp.reviewer_name || 'G').trim().charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-semibold text-[#1A2332] truncate">{exp.reviewer_name}</p>
+                          <p className="text-[11px] text-[#C4993E] mt-0.5 truncate">Stayed at {exp.hotel_name}</p>
+                        </div>
                       </div>
-                      <span className="text-[11px] text-[#6B7B8D]">{new Date(exp.created_at).toLocaleDateString()}</span>
+                      <span className="text-[11px] text-[#6B7B8D] shrink-0">{new Date(exp.created_at).toLocaleDateString()}</span>
                     </div>
                   </div>
                 ))}
@@ -648,11 +662,15 @@ const Home = () => {
                           <div key={review.id} className="bg-white p-8 rounded-3xl border border-[#E8E4DE]">
                             <div className="flex items-center justify-between mb-4">
                               <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-[#1A2332] text-[#C4993E] rounded-full flex items-center justify-center font-black">
-                                  {review.guest_name?.[0] || 'G'}
-                                </div>
+                                {review.reviewer_profile_image ? (
+                                  <img src={getImageUrl(review.reviewer_profile_image)} alt="" className="w-10 h-10 rounded-full object-cover border border-[#E8E4DE]" />
+                                ) : (
+                                  <div className="w-10 h-10 bg-[#1A2332] text-[#C4993E] rounded-full flex items-center justify-center font-black">
+                                    {(review.reviewer_name || review.guest_name || 'G').trim().charAt(0).toUpperCase()}
+                                  </div>
+                                )}
                                 <div>
-                                  <p className="text-[14px] font-black text-[#1A2332] leading-none mb-1">{review.guest_name}</p>
+                                  <p className="text-[14px] font-black text-[#1A2332] leading-none mb-1">{review.reviewer_name || review.guest_name || 'Guest'}</p>
                                   <div className="flex gap-1">
                                     {[...Array(5)].map((_, i) => (
                                       <span 
@@ -707,17 +725,30 @@ const Home = () => {
 
                     {/* Simple Map Placeholder or actual Map if possible */}
                     <div className="bg-white border-2 border-[#E8E4DE] p-4 rounded-[2.5rem] h-[300px] overflow-hidden relative group">
-                       <MapContainer 
-                        key={selectedHotel.id}
-                        center={[Number(selectedHotel.latitude) || 27.7172, Number(selectedHotel.longitude) || 85.3240]} 
-                        zoom={15} 
-                        style={{ height: '100%', width: '100%' }}
-                        scrollWheelZoom={false}
-                        className="rounded-[2rem] z-0"
-                       >
-                         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                         <Marker position={[Number(selectedHotel.latitude) || 27.7172, Number(selectedHotel.longitude) || 85.3240]} />
-                       </MapContainer>
+                       {selectedHotel.latitude && selectedHotel.longitude ? (
+                         <MapContainer 
+                          key={selectedHotel.id}
+                          center={[Number(selectedHotel.latitude), Number(selectedHotel.longitude)]} 
+                          zoom={15} 
+                          style={{ height: '100%', width: '100%' }}
+                          scrollWheelZoom={false}
+                          className="rounded-[2rem] z-0"
+                         >
+                           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                           <Marker position={[Number(selectedHotel.latitude), Number(selectedHotel.longitude)]} />
+                         </MapContainer>
+                       ) : (
+                         <div className="w-full h-full bg-[#F4F3F0] rounded-[2rem] flex flex-col items-center justify-center p-8 text-center border border-dashed border-[#D8D4CE]">
+                           <div className="w-14 h-14 bg-white rounded-full flex items-center justify-center mb-4 shadow-sm">
+                             <span className="material-symbols-outlined text-[28px] text-[#A0AEC0]">map_off</span>
+                           </div>
+                           <h5 className="text-[14px] font-black text-[#1A2332] uppercase tracking-widest mb-2">Map Unavailable</h5>
+                           <p className="text-[11px] font-bold text-[#8896A6] uppercase tracking-wide leading-relaxed">
+                             Accurate coordinates have not yet been verified for this property. <br />
+                             <span className="text-[#C4993E]">{selectedHotel.address}, {selectedHotel.city}</span>
+                           </p>
+                         </div>
+                       )}
                        <div className="absolute inset-x-4 top-4 z-10">
                           <div className="bg-white px-4 py-2 rounded-xl border border-[#E8E4DE] shadow-sm flex items-center gap-2">
                              <span className="material-symbols-outlined text-[#C4993E] text-[18px]">explore</span>

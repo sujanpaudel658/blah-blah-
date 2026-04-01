@@ -8,6 +8,8 @@ import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { QRCodeCanvas } from 'qrcode.react';
+import { API_URL } from '../config/api';
+import { getImageUrl } from '../utils/helpers';
 
 // Fix for default marker icon issues in React-Leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -60,6 +62,15 @@ const UserDashboard = () => {
   const [selectedBill, setSelectedBill] = useState(null);
   const [qrToken, setQrToken] = useState(null);
 
+  const [showExtendModal, setShowExtendModal] = useState(false);
+  const [extendTarget, setExtendTarget] = useState(null);
+  const [extendNights, setExtendNights] = useState(1);
+  const [extendMethod, setExtendMethod] = useState('khalti');
+  const [extendSubmitting, setExtendSubmitting] = useState(false);
+
+  // -- LOYALTY PROGRAM STATE --
+  const [loyaltyStatus, setLoyaltyStatus] = useState(null);
+
   // -- HOTEL REQUEST STATE --
   const [showRequestHotelModal, setShowRequestHotelModal] = useState(false);
   const [requestHotelForm, setRequestHotelForm] = useState({
@@ -98,7 +109,7 @@ const UserDashboard = () => {
    * INITIALIZATION: Load Hotels
    */
   useEffect(() => {
-    axios.get('http://localhost:5000/api/hotels')
+    axios.get(`${API_URL}/hotels`)
       .then(res => {
         const mapped = (res.data.hotels || []).map(hotel => {
           let hotelImages = [];
@@ -131,7 +142,7 @@ const UserDashboard = () => {
    */
   const fetchHotelReviews = async (hotelId) => {
     try {
-      const res = await axios.get(`http://localhost:5000/api/reviews/hotel/${hotelId}`);
+      const res = await axios.get(`${API_URL}/reviews/hotel/${hotelId}`);
       if (res.data.success) {
         setHotelReviews(res.data.reviews);
       }
@@ -170,7 +181,7 @@ const UserDashboard = () => {
       const fetchToken = async () => {
         try {
           const token = localStorage.getItem('token');
-          const res = await axios.get(`http://localhost:5000/api/payments/qr-token/${selectedPass.id}`, {
+          const res = await axios.get(`${API_URL}/payments/qr-token/${selectedPass.id}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           if (res.data.success) setQrToken(res.data.qrToken);
@@ -190,7 +201,7 @@ const UserDashboard = () => {
   const fetchMyBookings = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('http://localhost:5000/api/users/my-bookings', {
+      const res = await axios.get(`${API_URL}/users/my-bookings`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data.success) {
@@ -236,7 +247,7 @@ const UserDashboard = () => {
     e.preventDefault();
     try {
       const token = localStorage.getItem('token');
-      await axios.post('http://localhost:5000/api/hotels/request', requestHotelForm, {
+      await axios.post(`${API_URL}/hotels/request`, requestHotelForm, {
         headers: { Authorization: `Bearer ${token}` }
       });
       alert('Hotel request submitted! Waiting for Super Admin verification.');
@@ -262,8 +273,10 @@ const UserDashboard = () => {
     setSelectedHotel(hotel);
     setActiveImageIndex(0);
     setShowModal(true);
+    setLoyaltyStatus(null);
     fetchRooms(hotel.id);
     fetchHotelReviews(hotel.id);
+    fetchLoyaltyStatus(hotel.id);
   };
 
 
@@ -280,7 +293,7 @@ const UserDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const { checkIn, checkOut } = bookingDates;
-      const res = await axios.get(`http://localhost:5000/api/rooms?hotelId=${hotelId}&checkIn=${checkIn}&checkOut=${checkOut}`, {
+      const res = await axios.get(`${API_URL}/rooms?hotelId=${hotelId}&checkIn=${checkIn}&checkOut=${checkOut}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data.success) {
@@ -309,6 +322,25 @@ const UserDashboard = () => {
   };
 
   /**
+   * LOYALTY: Fetch loyalty status for a specific hotel
+   */
+  const fetchLoyaltyStatus = async (hotelId) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const res = await axios.get(`${API_URL}/loyalty/status/${hotelId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.success) {
+        setLoyaltyStatus(res.data.loyalty);
+      }
+    } catch (err) {
+      console.error('Loyalty status fetch error:', err.message);
+      setLoyaltyStatus(null);
+    }
+  };
+
+  /**
    * PAYMENT: Khalti Payment Gateway Integration
    */
   const processBooking = async (method = 'khalti') => {
@@ -320,7 +352,12 @@ const UserDashboard = () => {
     if (checkOut <= checkIn) return alert('Check-out date must be after check-in date');
 
     const totalNights = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));
-    const totalAmount = selectedRoom.base_price * totalNights * numRooms;
+    let totalAmount = selectedRoom.base_price * totalNights * numRooms;
+
+    // Apply loyalty discount if eligible (1 free night per room)
+    const loyaltyEligible = loyaltyStatus && loyaltyStatus.is_eligible;
+    const loyaltyDiscount = loyaltyEligible ? selectedRoom.base_price * numRooms : 0;
+    totalAmount = totalAmount - loyaltyDiscount;
 
     setIsReserving(true);
     try {
@@ -340,16 +377,24 @@ const UserDashboard = () => {
         check_out_date: bookingDates.checkOut,
         num_guests: numGuests,
         num_rooms: numRooms,
-        payment_method: method
+        payment_method: method,
+        apply_loyalty: loyaltyEligible
       };
 
-      const res = await axios.post('http://localhost:5000/api/payments/initiate', payload, {
+      const res = await axios.post(`${API_URL}/payments/initiate`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
       if (res.data.success) {
-        if (method === 'khalti' && res.data.payment?.payment_url) {
-          window.location.href = res.data.payment.payment_url;
+        if (method === 'khalti') {
+          const payUrl = res.data.payment?.payment_url;
+          if (payUrl) {
+            window.location.href = payUrl;
+          } else {
+            alert(
+              'Payment did not return a link. Check that KHALTI_SECRET_KEY is set on the server, then try again.'
+            );
+          }
         } else if (method === 'cash') {
           alert('Booking confirmed successfully! Please pay at the hotel upon arrival.');
           setShowModal(false);
@@ -374,7 +419,18 @@ const UserDashboard = () => {
         return;
       }
       console.error('Reservation Fault:', error);
-      alert(error.response?.data?.message || 'Payment connection error. Please try again.');
+      const d = error.response?.data;
+      const backendMsg = d?.message || d?.detail;
+      const extra =
+        typeof d?.error === 'string'
+          ? d.error
+          : d?.error && typeof d.error === 'object'
+            ? JSON.stringify(d.error)
+            : '';
+      alert(
+        [backendMsg, extra].filter(Boolean).join(' ') ||
+          'Payment connection error. Please try again.'
+      );
     } finally {
       setIsReserving(false);
     }
@@ -384,7 +440,7 @@ const UserDashboard = () => {
     if (!window.confirm("Cancel this booking? This action cannot be undone.")) return;
     try {
       const token = localStorage.getItem('token');
-      await axios.post('http://localhost:5000/api/payments/cancel', { bookingId }, {
+      await axios.post(`${API_URL}/payments/cancel`, { bookingId }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchMyBookings();
@@ -395,7 +451,7 @@ const UserDashboard = () => {
     if (!window.confirm(`Request a refund for NRS ${amount}?`)) return;
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post('http://localhost:5000/api/payments/refund', { bookingId }, {
+      const res = await axios.post(`${API_URL}/payments/refund`, { bookingId }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data.success) {
@@ -407,7 +463,7 @@ const UserDashboard = () => {
 
   const handleVerifyPayment = async (booking) => {
     try {
-      const res = await axios.post('http://localhost:5000/api/payments/verify', { purchase_order_id: booking.id });
+      const res = await axios.post(`${API_URL}/payments/verify`, { purchase_order_id: booking.id });
       if (res.data.success) {
         alert('Payment Verified: Booking confirmed.');
         fetchMyBookings();
@@ -417,9 +473,62 @@ const UserDashboard = () => {
     } catch (error) { alert('Verification link timeout.'); }
   };
 
+  const canExtendStay = (b) => {
+    if (b.status !== 'checked_in') return false;
+    const today = new Date().toISOString().split('T')[0];
+    let co = b.check_out_date;
+    if (co && typeof co === 'string') co = co.slice(0, 10);
+    else if (co) co = new Date(co).toISOString().split('T')[0];
+    return co && today >= co;
+  };
+
+  const openExtendModal = (booking) => {
+    setExtendTarget(booking);
+    setExtendNights(1);
+    setExtendMethod('khalti');
+    setShowExtendModal(true);
+  };
+
+  const handleExtendStay = async () => {
+    if (!extendTarget || extendNights < 1) return;
+    setExtendSubmitting(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(
+        `${API_URL}/payments/extend-stay`,
+        {
+          bookingId: extendTarget.id,
+          additional_nights: Number(extendNights),
+          payment_method: extendMethod
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.data.success) {
+        if (extendMethod === 'khalti') {
+          const payUrl = res.data.payment?.payment_url;
+          if (payUrl) {
+            window.location.href = payUrl;
+            return;
+          }
+          alert('Extension payment did not return a link. Check Khalti configuration on the server.');
+          return;
+        }
+        alert(res.data.message || 'Stay extended.');
+        setShowExtendModal(false);
+        setExtendTarget(null);
+        fetchMyBookings();
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Could not extend stay.');
+    } finally {
+      setExtendSubmitting(false);
+    }
+  };
+
   const closeModal = () => {
     setShowModal(false);
     setSelectedHotel(null);
+    setLoyaltyStatus(null);
   };
 
   return (
@@ -458,6 +567,13 @@ const UserDashboard = () => {
               My Bookings
               {myBookings.length > 0 && <span className="bg-[#1B2B41] text-white px-2 py-0.5 rounded-sm text-[8px]">{myBookings.length}</span>}
               {activeTab === 'bookings' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#B88E2F]"></div>}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/guest/profile')}
+              className="py-5 text-[10px] font-bold uppercase tracking-[0.2em] text-[#A0AEC0] hover:text-[#1B2B41] transition-all relative"
+            >
+              My profile
             </button>
             <button
               onClick={() => setShowRequestHotelModal(true)}
@@ -514,7 +630,7 @@ const UserDashboard = () => {
                   {hotel.images && hotel.images.length > 0 && (
                     <div className="relative h-56 overflow-hidden bg-[#F1F1F1]">
                       <img
-                        src={hotel.images[0].startsWith('data:') ? hotel.images[0] : (hotel.images[0].startsWith('http') ? hotel.images[0] : `http://localhost:5000${hotel.images[0]}`)}
+                        src={hotel.images[0].startsWith('data:') ? hotel.images[0] : (hotel.images[0].startsWith('http') ? hotel.images[0] : `${API_URL.replace('/api', '')}${hotel.images[0]}`)}
                         className="w-full h-full object-cover grayscale-[0.05] group-hover:scale-110 transition-transform duration-700"
                         alt={hotel.title}
                       />
@@ -564,6 +680,7 @@ const UserDashboard = () => {
                       </div>
                       <div className={`px-4 py-2 border text-[9px] font-bold uppercase tracking-widest text-center rounded-lg ${booking.status === 'checked_out' ? 'bg-slate-100 border-slate-300 text-slate-500' :
                         booking.status === 'confirmed' ? 'bg-[#E7F3ED] border-[#108548] text-[#108548]' :
+                          booking.status === 'checked_in' ? 'bg-[#E8EEF8] border-[#3B5BA9] text-[#3B5BA9]' :
                           'bg-[#FEEDEC] border-[#B91C1C] text-[#B91C1C]'
                         }`}>
                         {booking.status.replace('_', ' ')}
@@ -597,6 +714,12 @@ const UserDashboard = () => {
                         <div className="text-right">
                           <p className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest mb-1">Total Price (Paid)</p>
                           <p className="text-2xl font-bold text-[#1B2B41]">NRS {Number(booking.total_amount).toLocaleString()}</p>
+                          {booking.loyalty_free_night === 1 && (
+                            <div className="flex items-center gap-1 justify-end mt-1">
+                              <span className="material-symbols-outlined text-[12px] text-[#B88E2F]" style={{ fontVariationSettings: "'FILL' 1" }}>loyalty</span>
+                              <span className="text-[8px] font-bold text-[#B88E2F] uppercase tracking-widest">Loyalty Reward Applied (-NRS {Number(booking.loyalty_discount || 0).toLocaleString()})</span>
+                            </div>
+                          )}
                         </div>
                         <div className="flex flex-wrap md:flex-nowrap justify-end gap-3 w-full md:w-auto">
                           {booking.status === 'confirmed' && (
@@ -646,6 +769,16 @@ const UserDashboard = () => {
                           {booking.status === 'pending' && (
                             <button onClick={() => handleVerifyPayment(booking)} className="px-5 py-3 bg-[#B88E2F] text-white text-[10px] font-bold uppercase tracking-widest hover:bg-[#9E7A28] transition-all rounded-sm">
                                Verify Payment
+                            </button>
+                          )}
+                          {canExtendStay(booking) && (
+                            <button
+                              type="button"
+                              onClick={() => openExtendModal(booking)}
+                              className="px-6 py-4 bg-[#3B5BA9] text-white text-[10px] font-bold uppercase tracking-widest hover:bg-[#2d4780] transition-all rounded-xl flex items-center gap-3"
+                            >
+                              <span className="material-symbols-outlined text-sm">event_repeat</span>
+                              Extend stay
                             </button>
                           )}
                         </div>
@@ -813,7 +946,7 @@ const UserDashboard = () => {
                 onClick={async () => {
                   try {
                     const token = localStorage.getItem('token');
-                    await axios.post('http://localhost:5000/api/reviews', {
+                    await axios.post(`${API_URL}/reviews`, {
                       booking_id: selectedBookingForReview.id,
                       rating: reviewForm.rating,
                       comment: reviewForm.comment,
@@ -870,15 +1003,27 @@ const UserDashboard = () => {
                     <div className="flex justify-between border-t border-dashed border-[#E2E2E2] pt-4">
                       <div className="space-y-1">
                         <span className="text-[8px] font-bold text-[#A0AEC0] uppercase block">{selectedBill.room_type}</span>
-                        <span>{selectedBill.total_nights} Nights x NRS {Number(selectedBill.total_amount / selectedBill.total_nights).toLocaleString()}</span>
+                        <span>{selectedBill.total_nights} Nights x NRS {Number(selectedBill.price_per_night || (selectedBill.total_amount + Number(selectedBill.loyalty_discount || 0)) / selectedBill.total_nights).toLocaleString()}</span>
                       </div>
-                      <span className="font-bold">NRS {Number(selectedBill.total_amount).toLocaleString()}</span>
+                      <span className="font-bold">NRS {Number(Number(selectedBill.total_amount) + Number(selectedBill.loyalty_discount || 0)).toLocaleString()}</span>
                     </div>
+                    {selectedBill.loyalty_free_night === 1 && Number(selectedBill.loyalty_discount) > 0 && (
+                      <div className="flex justify-between border-t border-dashed border-[#E2E2E2] pt-4 text-green-600">
+                        <div className="space-y-1">
+                          <span className="text-[8px] font-bold uppercase block">★ LOYALTY REWARD</span>
+                          <span>1 Free Night Discount</span>
+                        </div>
+                        <span className="font-bold">-NRS {Number(selectedBill.loyalty_discount).toLocaleString()}</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="border-t border-[#1B2B41] pt-4 space-y-2">
                     <div className="flex justify-between text-base font-bold"><span>TOTAL PRICE:</span><span>NRS {Number(selectedBill.total_amount).toLocaleString()}</span></div>
                     <div className="flex justify-between text-[10px] italic"><span>PAYMENT:</span><span className="font-bold uppercase">{selectedBill.payment_method || 'KHALTI PAYMENT'}</span></div>
+                    {selectedBill.loyalty_free_night === 1 && (
+                      <div className="flex justify-between text-[10px] italic text-[#B88E2F]"><span>LOYALTY:</span><span className="font-bold uppercase">FREE NIGHT REDEEMED</span></div>
+                    )}
                   </div>
 
                   <div className="mt-10 pt-10 border-t border-dashed border-[#E2E2E2] text-center space-y-8">
@@ -904,6 +1049,66 @@ const UserDashboard = () => {
         </div>
       )}
 
+      {showExtendModal && extendTarget && (
+        <div className="fixed inset-0 bg-[#111B2B]/95 flex items-center justify-center z-[1000] p-6 fade-in">
+          <div className="max-w-md w-full bg-white border border-[#E2E2E2] rounded-2xl shadow-2xl overflow-hidden">
+            <div className="bg-[#1B2B41] px-8 py-6 border-b-4 border-[#B88E2F]">
+              <h3 className="text-white text-sm font-bold uppercase tracking-[0.2em]">Extend your stay</h3>
+              <p className="text-[9px] text-[#A0AEC0] font-bold uppercase tracking-widest mt-2">
+                Available from your scheduled check-out while you remain checked in
+              </p>
+            </div>
+            <div className="p-8 space-y-6">
+              <p className="text-[11px] text-[#64748B] leading-relaxed">
+                {extendTarget.hotel_name} — Room {extendTarget.room_number}. Extra nights use your current nightly rate; the platform fee (10%) applies to the extension the same as a new booking.
+              </p>
+              <div>
+                <label className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest block mb-2">Additional nights (1–90)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={extendNights}
+                  onChange={(e) => setExtendNights(Math.min(90, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                  className="w-full border border-[#E2E2E2] rounded-xl px-4 py-3 text-sm font-bold text-[#1B2B41]"
+                />
+              </div>
+              <p className="text-xs font-bold text-[#1B2B41]">
+                Estimated extension: NRS {Math.round(Number(extendTarget.price_per_night) * Number(extendNights) * 100) / 100}
+              </p>
+              <div className="space-y-3">
+                <p className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest">Payment</p>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="radio" name="extendPay" checked={extendMethod === 'khalti'} onChange={() => setExtendMethod('khalti')} />
+                  <span className="text-[11px] font-bold text-[#1B2B41]">Khalti (online)</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="radio" name="extendPay" checked={extendMethod === 'cash'} onChange={() => setExtendMethod('cash')} />
+                  <span className="text-[11px] font-bold text-[#1B2B41]">Pay at hotel (cash)</span>
+                </label>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowExtendModal(false); setExtendTarget(null); }}
+                  className="flex-1 py-4 border border-[#E2E2E2] text-[10px] font-bold uppercase tracking-widest rounded-xl text-[#64748B]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={extendSubmitting}
+                  onClick={handleExtendStay}
+                  className="flex-1 py-4 bg-[#3B5BA9] text-white text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-[#2d4780] disabled:opacity-50"
+                >
+                  {extendSubmitting ? '…' : extendMethod === 'khalti' ? 'Continue to pay' : 'Confirm extension'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* HOTEL DETAILS MODAL */}
       {showModal && selectedHotel && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 md:p-6 fade-in">
@@ -922,7 +1127,7 @@ const UserDashboard = () => {
                 {selectedHotel.images && selectedHotel.images.length > 0 ? (
                   <>
                     <img
-                      src={selectedHotel.images[activeImageIndex].startsWith('data:') ? selectedHotel.images[activeImageIndex] : (selectedHotel.images[activeImageIndex].startsWith('http') ? selectedHotel.images[activeImageIndex] : `http://localhost:5000${selectedHotel.images[activeImageIndex]}`)}
+                      src={selectedHotel.images[activeImageIndex].startsWith('data:') ? selectedHotel.images[activeImageIndex] : (selectedHotel.images[activeImageIndex].startsWith('http') ? selectedHotel.images[activeImageIndex] : `${API_URL.replace("/api", "")}${selectedHotel.images[activeImageIndex]}`)}
                       className="w-full h-full object-cover transition-all duration-700 hover:scale-105"
                       alt={`Hotel Image ${activeImageIndex + 1}`}
                       key={activeImageIndex}
@@ -1095,21 +1300,34 @@ const UserDashboard = () => {
                         <div className="space-y-6">
                           {hotelReviews.map((review) => (
                             <div key={review.id} className="p-8 bg-slate-50/50 rounded-2xl border border-slate-100 hover:bg-white hover:shadow-lg transition-all">
-                              <div className="flex justify-between items-start mb-4">
-                                <div>
-                                  <h5 className="text-sm font-bold text-[#1B2B41] uppercase mb-1">{review.title || 'Exceptional Stay'}</h5>
-                                  <div className="flex items-center gap-3">
-                                    <div className="flex text-yellow-400">
-                                      {[...Array(5)].map((_, i) => (
-                                        <span key={i} className="material-symbols-outlined text-[16px] fill-current" style={{ fontVariationSettings: `'FILL' ${i < Number(review.rating) ? 1 : 0}` }}>
-                                          star_rate
-                                        </span>
-                                      ))}
+                              <div className="flex justify-between items-start mb-4 gap-4">
+                                <div className="flex items-start gap-3 min-w-0">
+                                  {review.reviewer_profile_image ? (
+                                    <img
+                                      src={getImageUrl(review.reviewer_profile_image)}
+                                      alt=""
+                                      className="w-11 h-11 rounded-full object-cover border border-slate-200 shrink-0"
+                                    />
+                                  ) : (
+                                    <div className="w-11 h-11 rounded-full bg-[#1B2B41] text-[#B88E2F] flex items-center justify-center text-sm font-bold shrink-0">
+                                      {(review.reviewer_name || 'G').trim().charAt(0).toUpperCase()}
                                     </div>
-                                    <span className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest">• {review.reviewer_name}</span>
+                                  )}
+                                  <div className="min-w-0">
+                                    <h5 className="text-sm font-bold text-[#1B2B41] uppercase mb-1">{review.title || 'Exceptional Stay'}</h5>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <div className="flex text-yellow-400">
+                                        {[...Array(5)].map((_, i) => (
+                                          <span key={i} className="material-symbols-outlined text-[16px] fill-current" style={{ fontVariationSettings: `'FILL' ${i < Number(review.rating) ? 1 : 0}` }}>
+                                            star_rate
+                                          </span>
+                                        ))}
+                                      </div>
+                                      <span className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-widest">{review.reviewer_name}</span>
+                                    </div>
                                   </div>
                                 </div>
-                                <span className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-tighter">{new Date(review.created_at).toLocaleDateString()}</span>
+                                <span className="text-[9px] font-bold text-[#A0AEC0] uppercase tracking-tighter shrink-0">{new Date(review.created_at).toLocaleDateString()}</span>
                               </div>
                               <p className="text-xs text-[#64748B] leading-relaxed italic">"{review.comment}"</p>
                             </div>
@@ -1278,14 +1496,81 @@ const UserDashboard = () => {
                           </div>
                         </div>
 
+                        {/* LOYALTY PROGRAM BADGE */}
+                        {loyaltyStatus && (
+                          <div className={`p-5 rounded-xl border ${loyaltyStatus.is_eligible 
+                            ? 'bg-gradient-to-r from-amber-50 to-yellow-50 border-[#B88E2F]/30' 
+                            : 'bg-slate-50 border-slate-100'}`}>
+                            <div className="flex items-center gap-3 mb-3">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${loyaltyStatus.is_eligible ? 'bg-[#B88E2F] text-white' : 'bg-slate-200 text-slate-500'}`}>
+                                <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>loyalty</span>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold text-[#1B2B41] uppercase tracking-widest">Loyalty Program</p>
+                                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+                                  {loyaltyStatus.is_eligible 
+                                    ? '🎉 1 FREE NIGHT REWARD AVAILABLE!' 
+                                    : `${loyaltyStatus.progress}/${loyaltyStatus.threshold} stays this year`}
+                                </p>
+                              </div>
+                            </div>
+                            {/* Progress Bar */}
+                            <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full transition-all duration-700 ease-out ${loyaltyStatus.is_eligible ? 'bg-gradient-to-r from-[#B88E2F] to-[#D4A843]' : 'bg-[#1B2B41]'}`}
+                                style={{ width: `${(loyaltyStatus.progress / loyaltyStatus.threshold) * 100}%` }}
+                              ></div>
+                            </div>
+                            <div className="flex justify-between mt-2">
+                              {[...Array(loyaltyStatus.threshold)].map((_, i) => (
+                                <div key={i} className={`w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold ${i < loyaltyStatus.progress 
+                                  ? (loyaltyStatus.is_eligible ? 'bg-[#B88E2F] text-white' : 'bg-[#1B2B41] text-white')
+                                  : 'bg-slate-200 text-slate-400'}`}>
+                                  {i < loyaltyStatus.progress ? '✓' : i + 1}
+                                </div>
+                              ))}
+                            </div>
+                            {loyaltyStatus.is_eligible && (
+                              <p className="text-[9px] font-bold text-[#B88E2F] mt-3 text-center uppercase tracking-wider animate-pulse">
+                                ★ 1 Night Free on this booking ★
+                              </p>
+                            )}
+                            {!loyaltyStatus.is_eligible && loyaltyStatus.threshold - loyaltyStatus.progress <= 2 && loyaltyStatus.progress > 0 && (
+                              <p className="text-[8px] font-bold text-slate-400 mt-2 text-center uppercase tracking-wider">
+                                Only {loyaltyStatus.threshold - loyaltyStatus.progress} more stay{loyaltyStatus.threshold - loyaltyStatus.progress > 1 ? 's' : ''} for a free night!
+                              </p>
+                            )}
+                          </div>
+                        )}
+
                         {/* Final Calculation & CTA */}
                         <div className="pt-8 border-t border-slate-50 space-y-6">
                           <div className="flex justify-between items-end">
                             <div>
                               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Stay Cost</p>
-                              <p className="text-3xl font-bold text-[#1B2B41] tracking-tighter">
-                                {selectedRoom ? `NRS ${(selectedRoom.base_price * Math.max(1, Math.ceil((new Date(bookingDates.checkOut) - new Date(bookingDates.checkIn)) / (1000 * 60 * 60 * 24))) * numRooms).toLocaleString()}` : '---'}
-                              </p>
+                              {(() => {
+                                if (!selectedRoom) return <p className="text-3xl font-bold text-[#1B2B41] tracking-tighter">---</p>;
+                                const totalNights = Math.max(1, Math.ceil((new Date(bookingDates.checkOut) - new Date(bookingDates.checkIn)) / (1000 * 60 * 60 * 24)));
+                                const originalTotal = selectedRoom.base_price * totalNights * numRooms;
+                                const loyaltyDisc = (loyaltyStatus && loyaltyStatus.is_eligible) ? selectedRoom.base_price * numRooms : 0;
+                                const finalTotal = originalTotal - loyaltyDisc;
+                                return (
+                                  <div>
+                                    {loyaltyDisc > 0 && (
+                                      <p className="text-sm font-bold text-slate-400 line-through mb-1">NRS {originalTotal.toLocaleString()}</p>
+                                    )}
+                                    <p className={`text-3xl font-bold tracking-tighter ${loyaltyDisc > 0 ? 'text-green-600' : 'text-[#1B2B41]'}`}>
+                                      NRS {finalTotal.toLocaleString()}
+                                    </p>
+                                    {loyaltyDisc > 0 && (
+                                      <p className="text-[9px] font-bold text-green-600 uppercase tracking-widest mt-1 flex items-center gap-1">
+                                        <span className="material-symbols-outlined text-[12px]" style={{ fontVariationSettings: "'FILL' 1" }}>loyalty</span>
+                                        Loyalty Discount: -NRS {loyaltyDisc.toLocaleString()}
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                             <div className="text-right">
                               <p className="text-[9px] font-bold text-[#B88E2F] uppercase tracking-widest">Safe Payment</p>

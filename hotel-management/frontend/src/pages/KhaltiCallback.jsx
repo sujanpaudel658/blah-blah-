@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_URL } from '../config/api';
 
 const KhaltiCallback = () => {
     const location = useLocation();
@@ -28,11 +29,11 @@ const KhaltiCallback = () => {
             }
 
             try {
-                const response = await axios.post('http://localhost:5000/api/payments/verify', { pidx });
+                const response = await axios.post(`${API_URL}/payments/verify`, { pidx });
 
                 if (response.data.success) {
                     setStatus('success');
-                    setMessage('Payment successful! Your booking has been confirmed.');
+                    setMessage(response.data.message || 'Payment successful! Your booking has been confirmed.');
                     // Redirect to dashboard after 3 seconds
                     setTimeout(() => {
                         navigate('/guest/dashboard', { state: { activeTab: 'bookings' } });

@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const db = require('../config/db');
+const notificationEvents = require('../services/notificationEvents.service');
 
 // Helper for consistent error responses
 const handleError = (res, error, message) => {
@@ -20,7 +21,7 @@ exports.getAllHotels = async (req, res) => {
 // Create new hotel with admin
 exports.createHotel = async (req, res) => {
   try {
-    const { name, address, city, district, country, phone, email, description, image, latitude, longitude, adminName, adminEmail, adminPassword } = req.body;
+    const { name, address, city, country, phone, email, description, image, latitude, longitude, adminName, adminEmail, adminPassword } = req.body;
 
     if (!name || !city || !country) {
       return res.status(400).json({ success: false, message: 'Hotel name, city, and country are required' });
@@ -31,19 +32,18 @@ exports.createHotel = async (req, res) => {
 
     // Create hotel
     const [result] = await db.query(
-      'INSERT INTO hotels (name, address, city, district, country, phone, email, description, image, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO hotels (name, address, city, country, phone, email, description, image, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         name,
         address,
         city,
-        district || '',
         country,
         phone,
         email,
         description,
         image,
-        (latitude !== undefined && latitude !== null) ? latitude : 27.7172,
-        (longitude !== undefined && longitude !== null) ? longitude : 85.3240
+        (latitude !== undefined && latitude !== null) ? latitude : null,
+        (longitude !== undefined && longitude !== null) ? longitude : null
       ]
     );
     const hotelId = result.insertId;
@@ -73,6 +73,15 @@ exports.createHotel = async (req, res) => {
 
     const [newHotel] = await db.query('SELECT * FROM hotels WHERE id = ?', [hotelId]);
 
+    await notificationEvents.notifyHotelCreated({
+      hotelId,
+      hotelName: name
+    });
+    await notificationEvents.notifyAdminAccountChanged({
+      adminId,
+      action: adminPromoted ? 'was promoted to admin' : 'was created'
+    });
+
     res.status(201).json({
       success: true,
       message: 'Hotel and admin created successfully',
@@ -89,7 +98,7 @@ exports.createHotel = async (req, res) => {
 exports.updateHotel = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, address, city, district, country, phone, email, description, image, latitude, longitude } = req.body;
+    const { name, address, city, country, phone, email, description, image, latitude, longitude } = req.body;
 
     if (!id) {
       return res.status(400).json({ success: false, message: 'Hotel ID is required' });
@@ -99,19 +108,18 @@ exports.updateHotel = async (req, res) => {
     }
 
     const [result] = await db.query(
-      'UPDATE hotels SET name = ?, address = ?, city = ?, district = ?, country = ?, phone = ?, email = ?, description = ?, image = ?, latitude = ?, longitude = ? WHERE id = ?',
+      'UPDATE hotels SET name = ?, address = ?, city = ?, country = ?, phone = ?, email = ?, description = ?, image = ?, latitude = ?, longitude = ? WHERE id = ?',
       [
         name,
         address,
         city,
-        district || '',
         country,
         phone,
         email,
         description,
         image,
-        (latitude !== undefined && latitude !== null) ? latitude : 27.7172,
-        (longitude !== undefined && longitude !== null) ? longitude : 85.3240,
+        (latitude !== undefined && latitude !== null) ? latitude : null,
+        (longitude !== undefined && longitude !== null) ? longitude : null,
         id
       ]
     );
@@ -171,6 +179,11 @@ exports.createAdmin = async (req, res) => {
        FROM users u LEFT JOIN hotels h ON u.hotel_id = h.id WHERE u.id = ?`,
       [result.insertId]
     );
+
+    await notificationEvents.notifyAdminAccountChanged({
+      adminId: result.insertId,
+      action: 'was created'
+    });
 
     res.status(201).json({ success: true, message: 'Admin created successfully', admin: newAdmin[0] });
   } catch (error) {
@@ -240,6 +253,10 @@ exports.verifyHotel = async (req, res) => {
           'UPDATE users SET role = "admin", hotel_id = ? WHERE id = ?',
           [id, hotel.owner_id]
         );
+        await notificationEvents.notifyAdminAccountChanged({
+          adminId: hotel.owner_id,
+          action: 'was promoted after hotel verification'
+        });
       }
     }
 
@@ -332,11 +349,13 @@ exports.getSystemAnalytics = async (req, res) => {
     const recentParams = (startDate && endDate) ? [startDate, endDate] : [];
 
     const [recentBookings] = await db.query(`
-      SELECT b.*, h.name as hotel_name, r.room_number, rt.name as room_type
+      SELECT b.*, h.name as hotel_name, r.room_number, rt.name as room_type,
+             bgd.guest_name, bgd.guest_email, bgd.guest_phone, bgd.special_requests
       FROM bookings b
       JOIN hotels h ON b.hotel_id = h.id
       JOIN rooms r ON b.room_id = r.id
-      JOIN room_types rt ON r.room_type_id = rt.id${recentFilter}
+      JOIN room_types rt ON r.room_type_id = rt.id
+      LEFT JOIN booking_guest_details bgd ON b.id = bgd.booking_id${recentFilter}
       ORDER BY b.created_at DESC
       LIMIT 50
     `, recentParams);
@@ -384,8 +403,8 @@ exports.getTransactionLogs = async (req, res) => {
         p.notes,
         p.created_at as payment_date,
         b.booking_reference,
-        b.guest_name,
-        b.guest_email,
+        bgd.guest_name,
+        bgd.guest_email,
         b.status as booking_status,
         b.check_in_date,
         b.check_out_date,
@@ -395,6 +414,7 @@ exports.getTransactionLogs = async (req, res) => {
         h.city as hotel_city
       FROM payments p
       JOIN bookings b ON p.booking_id = b.id
+      LEFT JOIN booking_guest_details bgd ON b.id = bgd.booking_id
       JOIN hotels h ON b.hotel_id = h.id
       WHERE 1=1${dateFilter}
       ORDER BY p.created_at DESC

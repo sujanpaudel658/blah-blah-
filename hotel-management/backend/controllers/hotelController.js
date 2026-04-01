@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const notificationEvents = require('../services/notificationEvents.service');
 
 // Request to list a new hotel (User/Guest)
 exports.requestHotel = async (req, res) => {
@@ -34,12 +35,17 @@ exports.requestHotel = async (req, res) => {
                 email,
                 description,
                 image,
-                (latitude !== undefined && latitude !== null) ? latitude : 27.7172,
-                (longitude !== undefined && longitude !== null) ? longitude : 85.3240,
+                (latitude !== undefined && latitude !== null) ? latitude : null,
+                (longitude !== undefined && longitude !== null) ? longitude : null,
                 'pending',
                 userId
             ]
         );
+
+        await notificationEvents.notifyHotelCreated({
+            hotelId: result.insertId,
+            hotelName: name
+        });
 
         res.status(201).json({
             success: true,

@@ -14,8 +14,13 @@ const Footer = () => {
           {/* Brand & About */}
           <div className="space-y-6">
             <div className="flex items-center gap-2.5">
-              <span className="material-symbols-outlined text-[#C4993E] text-[24px]">apartment</span>
-              <span className="text-[18px] font-bold tracking-wide" style={{ fontFamily: "'Playfair Display', serif" }}>StayNepal</span>
+              <div className="h-16 w-44 overflow-hidden flex items-center">
+                <img
+                  src="/images/website_logo.png"
+                  alt="StayNepal"
+                  className="h-full w-auto object-contain origin-left scale-[2.2]"
+                />
+              </div>
             </div>
             <p className="text-[14px] text-[#8896A6] leading-relaxed max-w-xs">
               Handpicked hotels across Nepal — from the bustling streets of Kathmandu to the serene lakesides of Pokhara. Experience premium hospitality.
@@ -40,17 +45,16 @@ const Footer = () => {
               <div className="flex items-start gap-3">
                 <span className="material-symbols-outlined text-[#C4993E] text-[18px]">location_on</span>
                 <p className="text-[13px] text-[#8896A6]">
-                  Lakeside Ward-6, Pokhara <br />
-                  Gandaki, Nepal
+                  Smakhusi 26, Kathmandu, Nepal
                 </p>
               </div>
               <div className="flex items-center gap-3">
                 <span className="material-symbols-outlined text-[#C4993E] text-[18px]">call</span>
-                <p className="text-[13px] text-[#8896A6]">+977 1 423XXXX</p>
+                <p className="text-[13px] text-[#8896A6]">+977 01-43644145</p>
               </div>
               <div className="flex items-center gap-3">
                 <span className="material-symbols-outlined text-[#C4993E] text-[18px]">mail</span>
-                <p className="text-[13px] text-[#8896A6]">reservations@staynepal.com</p>
+                <p className="text-[13px] text-[#8896A6]">sujanpaudel368@gmail.com</p>
               </div>
             </div>
           </div>
@@ -83,8 +87,8 @@ const Footer = () => {
             &copy; 2024 StayNepal Integrated Portal. All rights reserved.
           </p>
           <div className="flex gap-6">
-            <a href="#" className="text-[11px] text-[#596A7D] hover:text-white">Privacy Policy</a>
-            <a href="#" className="text-[11px] text-[#596A7D] hover:text-white">Terms of Service</a>
+            <a href="/privacy-policy" className="text-[11px] text-[#596A7D] hover:text-white">Privacy Policy</a>
+            <a href="/terms-and-conditions" className="text-[11px] text-[#596A7D] hover:text-white">Terms of Service</a>
           </div>
         </div>
       </div>

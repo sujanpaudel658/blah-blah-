@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_URL } from '../config/api';
 
 // Components
 import AdminLayout from '../components/admin/AdminLayout';
@@ -18,8 +19,8 @@ const AdminDashboard = () => {
   const [user, setUser] = useState(null);
   const [hotel, setHotel] = useState(null);
   const [description, setDescription] = useState('');
-  const [latitude, setLatitude] = useState(27.7172);
-  const [longitude, setLongitude] = useState(85.3240);
+  const [latitude, setLatitude] = useState(null);
+  const [longitude, setLongitude] = useState(null);
   const [city, setCity] = useState('');
   const [images, setImages] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
@@ -30,9 +31,13 @@ const AdminDashboard = () => {
     totalRooms: '0',
     liveBookings: '0',
     occupancyRate: '0%',
-    estRevenue: '0',
-    platformFee: '0'
+    onlineRevenue: '0',
+    totalCommission: '0',
+    cashCollected: '0'
   });
+
+  // Financial Detail Modal
+  const [showFinanceModal, setShowFinanceModal] = useState(false);
 
   // UI State
   const [showScanner, setShowScanner] = useState(false);
@@ -58,7 +63,7 @@ const AdminDashboard = () => {
       }
 
       try {
-        const res = await axios.get('http://localhost:5000/api/auth/me', {
+        const res = await axios.get(`${API_URL}/auth/me`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const freshUser = res.data.user;
@@ -80,12 +85,12 @@ const AdminDashboard = () => {
 
   const fetchHotelData = async (hotelId) => {
     try {
-      const res = await axios.get(`http://localhost:5000/api/hotels/${hotelId}`);
+      const res = await axios.get(`${API_URL}/hotels/${hotelId}`);
       const h = res.data.hotel;
       setHotel(h);
       setDescription(h.description || '');
-      setLatitude(parseFloat(h.latitude) || 27.7172);
-      setLongitude(parseFloat(h.longitude) || 85.3240);
+      setLatitude(parseFloat(h.latitude) || null);
+      setLongitude(parseFloat(h.longitude) || null);
       setCity(h.city || '');
 
       const parsedImages = parseHotelImages(h.image);
@@ -106,10 +111,10 @@ const AdminDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const [bookingsRes, roomsRes] = await Promise.all([
-        axios.get(`http://localhost:5000/api/payments/hotel/${hotelId}`, {
+        axios.get(`${API_URL}/payments/hotel/${hotelId}`, {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        axios.get(`http://localhost:5000/api/rooms?hotelId=${hotelId}`, {
+        axios.get(`${API_URL}/rooms?hotelId=${hotelId}`, {
           headers: { Authorization: `Bearer ${token}` }
         })
       ]);
@@ -119,19 +124,20 @@ const AdminDashboard = () => {
         const bookings = bookingsRes.data.bookings || [];
         setHotelBookings(bookings);
 
-        // 1. Revenue Calculation: Only count completed payments
-        const paidBookings = bookings.filter(b => b?.payment_status === 'paid');
-        const revenueTotal = paidBookings.reduce((sum, b) => sum + Number(b?.total_amount || 0), 0);
-        const commissionTotal = paidBookings.reduce((sum, b) => sum + Number(b?.commission_amount || 0), 0);
+        // 1. Financial Audit Logic
+        const onlinePaid = bookings.filter(b => b?.payment_status === 'paid');
+        const cashBookings = bookings.filter(b => b?.payment_status !== 'paid' && b?.status !== 'cancelled' && b?.status !== 'pending');
+
+        const onlineRevenueTotal = onlinePaid.reduce((sum, b) => sum + Number(b?.total_amount || 0), 0);
+        const cashRevenueTotal = cashBookings.reduce((sum, b) => sum + Number(b?.total_amount || 0), 0);
+        const commissionTotal = bookings.reduce((sum, b) => sum + Number(b?.commission_amount || 0), 0);
 
         // 2. Room & Booking Stats
         const roomList = roomsRes.data.rooms || [];
         const totalRooms = roomList.length;
 
-        // Note: 'confirmed' status means the guest has a valid booking
-        const activeBookings = bookings.filter(b => b?.status === 'confirmed').length;
+        const activeBookings = bookings.filter(b => b?.status === 'confirmed' || b?.status === 'checked_in').length;
 
-        // Calculate percentage (guard against division by zero)
         let occupancyPercent = '0%';
         if (totalRooms > 0) {
           occupancyPercent = ((activeBookings / totalRooms) * 100).toFixed(0) + '%';
@@ -141,8 +147,9 @@ const AdminDashboard = () => {
           totalRooms: `${totalRooms}`,
           liveBookings: `${activeBookings}`,
           occupancyRate: occupancyPercent,
-          estRevenue: `${(revenueTotal - commissionTotal).toLocaleString()}`,
-          platformFee: `${commissionTotal.toLocaleString()}`
+          onlineRevenue: `${onlineRevenueTotal.toLocaleString()}`,
+          totalCommission: `${commissionTotal.toLocaleString()}`,
+          cashCollected: `${cashRevenueTotal.toLocaleString()}`
         });
       }
     } catch (err) {
@@ -188,7 +195,7 @@ const AdminDashboard = () => {
         image: JSON.stringify(imagePreviews)
       };
 
-      const res = await axios.put(`http://localhost:5000/api/hotels/${hotel.id}`, payload, {
+      const res = await axios.put(`${API_URL}/hotels/${hotel.id}`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -206,7 +213,7 @@ const AdminDashboard = () => {
   const updateBookingStatus = async (bookingId, endpoint, data = {}) => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post(`http://localhost:5000/api/payments/${endpoint}`, { bookingId, ...data }, {
+      const res = await axios.post(`${API_URL}/payments/${endpoint}`, { bookingId, ...data }, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -222,7 +229,7 @@ const AdminDashboard = () => {
   const handleScanSuccess = async (decodedText) => {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post(`http://localhost:5000/api/payments/scan-checkin`, 
+      const res = await axios.post(`${API_URL}/payments/scan-checkin`, 
         { qrToken: decodedText },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -254,6 +261,25 @@ const AdminDashboard = () => {
         },
         () => alert('Could not find your location')
       );
+    }
+  };
+
+  const handleRequestPayout = async () => {
+    const amount = window.prompt(`Enter payout amount (Available: Rs. ${Number(hotel?.balance || 0).toLocaleString()}):`, hotel?.balance);
+    if (!amount || isNaN(amount) || Number(amount) <= 0) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/payments/payout/request`, 
+        { amount: Number(amount) }, 
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.data.success) {
+        showNotification(res.data.message);
+        fetchHotelData(hotel.id);
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Payout request failed.');
     }
   };
 
@@ -289,31 +315,41 @@ const AdminDashboard = () => {
 
         {/* 1. STATISTICS OVERVIEW */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 relative group cursor-pointer" onClick={handleRequestPayout}>
             <StatCard
-              label="SYSTEM BALANCE"
+              label="PAYOUT BALANCE"
               value={`Rs. ${Number(hotel?.balance || 0).toLocaleString()}`}
               icon="account_balance"
-              trend={Number(hotel?.balance) < 0 ? "Owed to Platform" : "Available to Withdraw"}
+              trend={Number(hotel?.balance) < 0 ? "Owed to Platform" : "Click to Request Payout"}
               isMajor={true}
             />
+            {Number(hotel?.balance) > 0 && (
+              <div className="absolute top-4 right-4 bg-[#C4993E] text-white text-[8px] font-black px-2 py-1 rounded uppercase tracking-tighter opacity-0 group-hover:opacity-100 transition-opacity">
+                Request Payout
+              </div>
+            )}
           </div>
           <div className="lg:col-span-1">
             <StatCard
-              label="NET EARNINGS"
-              value={`Rs. ${dashboardStats.estRevenue}`}
-              icon="payments"
-              trend="Total Collected"
+              label="ONLINE REVENUE"
+              value={`Rs. ${dashboardStats.onlineRevenue}`}
+              icon="language"
+              trend="Held by Platform"
+            />
+          </div>
+          <div className="lg:col-span-1 cursor-pointer" onClick={() => setShowFinanceModal(true)}>
+            <StatCard 
+              label="TOTAL FEE (10%)" 
+              value={`Rs. ${dashboardStats.totalCommission}`} 
+              icon="toll" 
+              trend="View Audit Trail" 
             />
           </div>
           <div className="lg:col-span-1">
-            <StatCard label="TOTAL ROOMS" value={dashboardStats.totalRooms} icon="inventory" />
+            <StatCard label="CASH AT HOTEL" value={`Rs. ${dashboardStats.cashCollected}`} icon="payments" trend="Collected Directly" />
           </div>
           <div className="lg:col-span-1">
-            <StatCard label="ACTIVE BOOKINGS" value={dashboardStats.liveBookings} icon="confirmation_number" trend="Live" />
-          </div>
-          <div className="lg:col-span-1">
-            <StatCard label="OCCUPANCY RATE" value={dashboardStats.occupancyRate} icon="percent" />
+            <StatCard label="OCCUPANCY" value={dashboardStats.occupancyRate} icon="percent" />
           </div>
         </div>
 
@@ -374,6 +410,88 @@ const AdminDashboard = () => {
         onScanSuccess={handleScanSuccess}
         scannedBooking={scannedBooking}
       />
+
+      {/* Financial Audit Modal */}
+      {showFinanceModal && (
+        <div className="fixed inset-0 bg-[#0A111F]/90 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 fade-in">
+          <div className="bg-white max-w-5xl w-full max-h-[90vh] overflow-hidden rounded-xl flex flex-col shadow-2xl">
+            <div className="bg-[#1A2332] px-8 py-6 flex items-center justify-between text-white shrink-0">
+              <div>
+                <h2 className="text-lg font-bold uppercase tracking-[0.15em]">Commission & Settlements Audit</h2>
+                <p className="text-[10px] text-white/70 font-bold uppercase tracking-[0.2em] mt-1">Detailed breakdown of platform fees and balances</p>
+              </div>
+              <button onClick={() => setShowFinanceModal(false)} className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-all">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 custom-scrollbar">
+               {/* Dashboard financial summary */}
+               <div className="grid grid-cols-1 md:grid-cols-4 gap-1 p-6 bg-[#F9FAFB] border-b border-[#E2E8F0]">
+                  <div className="bg-white p-4 text-center border">
+                    <p className="text-xs font-bold text-[#94A3B8] uppercase">System Balance</p>
+                    <p className={`text-xl font-black ${Number(hotel?.balance) < 0 ? 'text-[#B91C1C]' : 'text-[#108548]'}`}>
+                      Rs. {Number(hotel?.balance || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="bg-white p-4 text-center border">
+                    <p className="text-xs font-bold text-[#94A3B8] uppercase">Online (Held)</p>
+                    <p className="text-xl font-black text-[#1A2332]">Rs. {dashboardStats.onlineRevenue}</p>
+                  </div>
+                  <div className="bg-white p-4 text-center border">
+                    <p className="text-xs font-bold text-[#94A3B8] uppercase">Cash Collected</p>
+                    <p className="text-xl font-black text-[#B88E2F]">Rs. {dashboardStats.cashCollected}</p>
+                  </div>
+                  <div className="bg-white p-4 text-center border">
+                    <p className="text-xs font-bold text-[#94A3B8] uppercase">Total Commission</p>
+                    <p className="text-xl font-black text-[#607AFB]">Rs. {dashboardStats.totalCommission}</p>
+                  </div>
+               </div>
+
+               <table className="w-full text-left border-collapse">
+                 <thead className="sticky top-0 bg-white shadow-sm">
+                   <tr className="border-b divide-x">
+                     <th className="p-4 text-[10px] font-black text-[#1B2B41] uppercase tracking-widest">Reference</th>
+                     <th className="p-4 text-[10px] font-black text-[#1B2B41] uppercase tracking-widest">Guest</th>
+                     <th className="p-4 text-[10px] font-black text-[#1B2B41] uppercase tracking-widest">Method</th>
+                     <th className="p-4 text-[10px] font-black text-[#1B2B41] uppercase tracking-widest">Gross Amount</th>
+                     <th className="p-4 text-[10px] font-black text-[#1B2B41] uppercase tracking-widest">Commission</th>
+                     <th className="p-4 text-[10px] font-black text-[#1B2B41] uppercase tracking-widest">Net Earned</th>
+                     <th className="p-4 text-[10px] font-black text-[#1B2B41] uppercase tracking-widest">Status</th>
+                   </tr>
+                 </thead>
+                 <tbody className="divide-y text-[13px]">
+                   {hotelBookings.map((b) => (
+                     <tr key={b.id} className="hover:bg-[#F8FAFC] divide-x">
+                       <td className="p-4 font-mono text-[11px] text-[#64748B]">{b.booking_reference}</td>
+                       <td className="p-4">
+                         <p className="font-bold text-[#1B2B41]">{b.guest_user_name || b.guest_name}</p>
+                         <p className="text-[10px] text-[#A0AEC0]">{new Date(b.check_in_date).toLocaleDateString()}</p>
+                       </td>
+                       <td className="p-4 uppercase text-[10px] font-bold text-[#64748B]">{b.payment_method || 'N/A'}</td>
+                       <td className="p-4 font-bold">Rs. {Number(b.total_amount).toLocaleString()}</td>
+                       <td className="p-4 font-bold text-[#607AFB]">Rs. {Number(b.commission_amount || 0).toLocaleString()}</td>
+                       <td className="p-4 font-bold text-[#108548]">
+                         Rs. {(Number(b.total_amount) - Number(b.commission_amount || 0)).toLocaleString()}
+                       </td>
+                       <td className="p-4">
+                         {b.balance_synced ? (
+                           <span className="text-[9px] font-black uppercase text-[#108548] flex items-center gap-1">
+                             <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                             Accounted
+                           </span>
+                         ) : (
+                           <span className="text-[9px] font-black uppercase text-[#64748B]">Pending Check-in</span>
+                         )}
+                       </td>
+                     </tr>
+                   ))}
+                 </tbody>
+               </table>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 };

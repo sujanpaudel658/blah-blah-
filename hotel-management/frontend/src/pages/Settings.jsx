@@ -1,17 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_URL } from '../config/api';
 import AdminLayout from '../components/admin/AdminLayout';
+import { getImageUrl } from '../utils/helpers';
 
 const Settings = () => {
     const navigate = useNavigate();
+    const fileInputRef = useRef(null);
     const [user, setUser] = useState(null);
     const [successMessage, setSuccessMessage] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
     const [formData, setFormData] = useState({
-        name: '',
+        fullName: '',
         email: '',
+        phone: '',
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
@@ -19,23 +24,75 @@ const Settings = () => {
 
     useEffect(() => {
         const token = localStorage.getItem('token');
-        const userData = localStorage.getItem('user');
-        if (!token || !userData) {
+        if (!token) {
             navigate('/login');
             return;
         }
-        const parsedUser = JSON.parse(userData);
-        setUser(parsedUser);
-        setFormData(prev => ({
-            ...prev,
-            name: parsedUser.name || '',
-            email: parsedUser.email || ''
-        }));
+
+        const sync = async () => {
+            try {
+                const res = await axios.get(`${API_URL}/auth/me`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (res.data.success && res.data.user) {
+                    const u = res.data.user;
+                    localStorage.setItem('user', JSON.stringify(u));
+                    setUser(u);
+                    setFormData((prev) => ({
+                        ...prev,
+                        fullName: u.fullName || '',
+                        email: u.email || '',
+                        phone: u.phone || ''
+                    }));
+                    return;
+                }
+            } catch {
+                /* fall through */
+            }
+            const userData = localStorage.getItem('user');
+            if (!userData) {
+                navigate('/login');
+                return;
+            }
+            const parsedUser = JSON.parse(userData);
+            setUser(parsedUser);
+            setFormData((prev) => ({
+                ...prev,
+                fullName: parsedUser.fullName || parsedUser.name || '',
+                email: parsedUser.email || '',
+                phone: parsedUser.phone || ''
+            }));
+        };
+        sync();
     }, [navigate]);
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
+        setFormData((prev) => ({ ...prev, [name]: value }));
+    };
+
+    const handlePhotoChange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploadingPhoto(true);
+        try {
+            const token = localStorage.getItem('token');
+            const fd = new FormData();
+            fd.append('photo', file);
+            const res = await axios.post(`${API_URL}/auth/profile-photo`, fd, {
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+            });
+            if (res.data.success && res.data.user) {
+                localStorage.setItem('user', JSON.stringify(res.data.user));
+                setUser(res.data.user);
+                showNotification('Profile photo updated.');
+            }
+        } catch (err) {
+            alert(err.response?.data?.message || 'Upload failed.');
+        } finally {
+            setUploadingPhoto(false);
+            e.target.value = '';
+        }
     };
 
     const handleUpdateProfile = async (e) => {
@@ -43,12 +100,15 @@ const Settings = () => {
         setIsSaving(true);
         try {
             const token = localStorage.getItem('token');
-            const res = await axios.put('http://localhost:5000/api/auth/profile', {
-                name: formData.name,
-                email: formData.email
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await axios.put(
+                `${API_URL}/auth/profile`,
+                {
+                    fullName: formData.fullName,
+                    email: formData.email,
+                    phone: formData.phone
+                },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
 
             if (res.data.success) {
                 localStorage.setItem('user', JSON.stringify(res.data.user));
@@ -72,15 +132,17 @@ const Settings = () => {
         setIsSaving(true);
         try {
             const token = localStorage.getItem('token');
-            const res = await axios.put('http://localhost:5000/api/auth/password', {
-                currentPassword: formData.currentPassword,
-                newPassword: formData.newPassword
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const res = await axios.put(
+                `${API_URL}/auth/password`,
+                {
+                    currentPassword: formData.currentPassword,
+                    newPassword: formData.newPassword
+                },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
 
             if (res.data.success) {
-                setFormData(prev => ({
+                setFormData((prev) => ({
                     ...prev,
                     currentPassword: '',
                     newPassword: '',
@@ -106,13 +168,10 @@ const Settings = () => {
         navigate('/login');
     };
 
+    const avatarSrc = user?.profileImage ? getImageUrl(user.profileImage) : null;
+
     return (
-        <AdminLayout
-            user={user}
-            title="SYSTEM SETTINGS"
-            subtitle="MANAGE SETTINGS"
-            onLogout={handleLogout}
-        >
+        <AdminLayout user={user} title="SYSTEM SETTINGS" subtitle="MANAGE SETTINGS" onLogout={handleLogout}>
             <div className="max-w-4xl space-y-8 pb-12">
                 {successMessage && (
                     <div className="bg-[#E7F3ED] border border-[#108548] p-4 text-[#108548] font-bold text-xs uppercase tracking-widest fade-in">
@@ -120,8 +179,37 @@ const Settings = () => {
                     </div>
                 )}
 
+                <div className="admin-card bg-white flex flex-col md:flex-row md:items-center gap-8 p-8">
+                    <div className="w-28 h-28 rounded-full bg-[#F9FAFB] border-2 border-[#E2E2E2] overflow-hidden flex items-center justify-center shrink-0">
+                        {avatarSrc ? (
+                            <img src={avatarSrc} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                            <span className="material-symbols-outlined text-5xl text-[#A0AEC0]">person</span>
+                        )}
+                    </div>
+                    <div>
+                        <span className="admin-label">Profile picture</span>
+                        <h3 className="text-lg font-bold text-[#1B2B41] uppercase tracking-tight mb-3">Photo</h3>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/gif,image/webp"
+                            className="hidden"
+                            onChange={handlePhotoChange}
+                        />
+                        <button
+                            type="button"
+                            disabled={uploadingPhoto}
+                            onClick={() => fileInputRef.current?.click()}
+                            className="admin-button admin-button-secondary h-10 uppercase tracking-widest text-[11px]"
+                        >
+                            {uploadingPhoto ? 'UPLOADING…' : 'UPLOAD PHOTO'}
+                        </button>
+                        <p className="text-[10px] text-[#64748B] mt-2">JPEG, PNG, GIF or WebP · max 3 MB</p>
+                    </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {/* Profile Settings */}
                     <div className="admin-card bg-white flex flex-col">
                         <div className="p-6 border-b border-[#F1F1F1]">
                             <span className="admin-label">User Identity</span>
@@ -132,8 +220,8 @@ const Settings = () => {
                                 <label className="admin-label">Full Name</label>
                                 <input
                                     required
-                                    name="name"
-                                    value={formData.name}
+                                    name="fullName"
+                                    value={formData.fullName}
                                     onChange={handleInputChange}
                                     className="admin-input"
                                 />
@@ -149,6 +237,16 @@ const Settings = () => {
                                     className="admin-input"
                                 />
                             </div>
+                            <div className="form-group">
+                                <label className="admin-label">Phone</label>
+                                <input
+                                    name="phone"
+                                    value={formData.phone}
+                                    onChange={handleInputChange}
+                                    className="admin-input"
+                                    placeholder="+977 …"
+                                />
+                            </div>
                             <button
                                 type="submit"
                                 disabled={isSaving}
@@ -159,7 +257,6 @@ const Settings = () => {
                         </form>
                     </div>
 
-                    {/* Security Settings */}
                     <div className="admin-card bg-white flex flex-col">
                         <div className="p-6 border-b border-[#F1F1F1]">
                             <span className="admin-label">Access Control</span>
@@ -210,7 +307,6 @@ const Settings = () => {
                     </div>
                 </div>
 
-                {/* System Information */}
                 <div className="admin-card bg-white">
                     <div className="p-6 border-b border-[#F1F1F1]">
                         <span className="admin-label">Technical Environment</span>

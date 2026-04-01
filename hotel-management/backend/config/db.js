@@ -19,7 +19,7 @@ pool.getConnection((err, connection) => {
   }
   console.log('✓ Database connected');
   connection.query('SET GLOBAL max_allowed_packet=67108864', (err) => {
-    if (!err) console.log('✓ max_allowed_packet set to 64MB');
+    if (err && process.env.DEBUG_DB === '1') console.warn('[db] max_allowed_packet:', err.message);
     connection.release();
   });
 });

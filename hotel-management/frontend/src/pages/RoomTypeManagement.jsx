@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_URL } from '../config/api';
 import AdminLayout from '../components/admin/AdminLayout';
 
 const RoomTypeManagement = () => {
@@ -73,7 +74,7 @@ const RoomTypeManagement = () => {
     const fetchRoomTypes = async (hotelId) => {
         try {
             const token = localStorage.getItem('token');
-            const res = await axios.get(`http://localhost:5000/api/rooms/types?hotelId=${hotelId}`, {
+            const res = await axios.get(`${API_URL}/rooms/types?hotelId=${hotelId}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (res.data.success) {
@@ -114,11 +115,11 @@ const RoomTypeManagement = () => {
 
             let res;
             if (isEditing) {
-                res = await axios.put(`http://localhost:5000/api/rooms/types/${editingId}`, payload, {
+                res = await axios.put(`${API_URL}/rooms/types/${editingId}`, payload, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
             } else {
-                res = await axios.post('http://localhost:5000/api/rooms/types', payload, {
+                res = await axios.post(`${API_URL}/rooms/types`, payload, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
             }
@@ -176,7 +177,7 @@ const RoomTypeManagement = () => {
 
         try {
             const token = localStorage.getItem('token');
-            const res = await axios.delete(`http://localhost:5000/api/rooms/types/${id}`, {
+            const res = await axios.delete(`${API_URL}/rooms/types/${id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
@@ -198,7 +199,7 @@ const RoomTypeManagement = () => {
             let res;
 
             if (addMethod === 'list') {
-                res = await axios.post('http://localhost:5000/api/rooms/add-by-numbers', {
+                res = await axios.post(`${API_URL}/rooms/add-by-numbers`, {
                     hotel_id: user?.hotel_id,
                     room_type_id: selectedType?.id,
                     room_numbers: roomsList,
@@ -207,7 +208,7 @@ const RoomTypeManagement = () => {
                     headers: { Authorization: `Bearer ${token}` }
                 });
             } else if (addMethod === 'quick') {
-                res = await axios.post('http://localhost:5000/api/rooms/bulk', {
+                res = await axios.post(`${API_URL}/rooms/bulk`, {
                     hotel_id: user?.hotel_id,
                     room_type_id: selectedType?.id,
                     start_number: startNumber,
@@ -217,7 +218,7 @@ const RoomTypeManagement = () => {
                     headers: { Authorization: `Bearer ${token}` }
                 });
             } else {
-                res = await axios.post('http://localhost:5000/api/rooms/multi-bulk', {
+                res = await axios.post(`${API_URL}/rooms/multi-bulk`, {
                     hotel_id: user?.hotel_id,
                     room_type_id: selectedType?.id,
                     batches: floorBatches.map(b => ({

@@ -1,5 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_URL } from '../config/api';
+import { getImageUrl } from '../utils/helpers';
 
 const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSearch, hotelSuggestions = [] }) => {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -39,13 +41,18 @@ const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSear
     : [];
 
   return (
-    <nav className="sticky top-0 z-50 w-full bg-white border-b border-[#E8E4DE] h-[72px]">
+    <nav className="sticky top-0 z-50 w-full bg-white border-b border-[#E8E4DE] h-[92px]">
       <div className="max-w-7xl mx-auto px-6 h-full">
         <div className="flex items-center justify-between h-full">
           {/* Brand */}
           <div className="flex items-center gap-2.5 cursor-pointer" onClick={handleLogoClick}>
-            <span className="material-symbols-outlined text-[#C4993E] text-[22px]">apartment</span>
-            <span className="text-[15px] font-bold text-[#1A2332]" style={{ fontFamily: "'Playfair Display', serif" }}>StayNepal</span>
+            <div className="h-16 w-44 overflow-hidden flex items-center">
+              <img
+                src="/images/website_logo.png"
+                alt="StayNepal"
+                className="h-full w-auto object-contain origin-left scale-[2.2]"
+              />
+            </div>
           </div>
 
           {/* Center: Search */}
@@ -74,7 +81,7 @@ const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSear
                     {filteredSuggestions.map(hotel => {
                       const firstImage = hotel.images?.[0];
                       const thumbUrl = firstImage
-                        ? (firstImage.startsWith('data:') ? firstImage : (firstImage.startsWith('http') ? firstImage : `http://localhost:5000${firstImage}`))
+                        ? (firstImage.startsWith('data:') ? firstImage : (firstImage.startsWith('http') ? firstImage : `${API_URL.replace("/api", "")}${firstImage}`))
                         : null;
 
                       return (
@@ -102,9 +109,24 @@ const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSear
           {/* Right: User Info */}
           <div className="flex items-center gap-5">
             {user && (
-              <div className="hidden sm:flex flex-col items-end">
-                <span className="text-[13px] font-semibold text-[#1A2332] leading-none mb-1">{user.fullName || user.full_name}</span>
-                <span className="text-[11px] font-medium text-[#C4993E] capitalize leading-none">{user.role === 'admin' ? 'Hotel Manager' : 'Guest'}</span>
+              <div className="hidden sm:flex items-center gap-3">
+                {user.profileImage ? (
+                  <img
+                    src={getImageUrl(user.profileImage)}
+                    alt=""
+                    className="w-10 h-10 rounded-full object-cover border border-[#E8E4DE] shrink-0"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-[#F4F3F0] border border-[#E8E4DE] flex items-center justify-center shrink-0">
+                    <span className="material-symbols-outlined text-[#A0A89C] text-[22px]">person</span>
+                  </div>
+                )}
+                <div className="flex flex-col items-end">
+                  <span className="text-[13px] font-semibold text-[#1A2332] leading-none mb-1">{user.fullName || user.full_name}</span>
+                  <span className="text-[11px] font-medium text-[#C4993E] capitalize leading-none">
+                    {user.role === 'admin' ? 'Hotel Manager' : user.role === 'superadmin' ? 'Super Admin' : 'Guest'}
+                  </span>
+                </div>
               </div>
             )}
             {onLogout && (

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_URL } from '../config/api';
 import AdminLayout from '../components/admin/AdminLayout';
 import BookingTable from '../components/admin/BookingTable';
 import QRScanner from '../components/admin/QRScanner';
@@ -40,7 +41,7 @@ const Bookings = () => {
 
             try {
                 // Fetch hotel-specific registry
-                const res = await axios.get(`http://localhost:5000/api/payments/hotel/${parsedUser.hotel_id}`, {
+                const res = await axios.get(`${API_URL}/payments/hotel/${parsedUser.hotel_id}`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 if (res.data.success) {
@@ -62,7 +63,7 @@ const Bookings = () => {
     const handleScanSuccess = async (decodedText) => {
         try {
             const token = localStorage.getItem('token');
-            const res = await axios.post(`http://localhost:5000/api/payments/scan-checkin`, 
+            const res = await axios.post(`${API_URL}/payments/scan-checkin`, 
               { qrToken: decodedText },
               { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -80,7 +81,7 @@ const Bookings = () => {
                 // Refresh local bookings state to reflect the check-in
                 try {
                     const parsedUser = JSON.parse(localStorage.getItem('user'));
-                    const refreshRes = await axios.get(`http://localhost:5000/api/payments/hotel/${parsedUser.hotel_id}`, {
+                    const refreshRes = await axios.get(`${API_URL}/payments/hotel/${parsedUser.hotel_id}`, {
                         headers: { Authorization: `Bearer ${token}` }
                     });
                     if (refreshRes.data.success) {
@@ -126,7 +127,7 @@ const Bookings = () => {
                     return;
             }
 
-            const res = await axios.post(`http://localhost:5000/api/payments${endpoint}`,
+            const res = await axios.post(`${API_URL}/payments${endpoint}`,
                 { bookingId },
                 { headers: { Authorization: `Bearer ${token}` } }
             );

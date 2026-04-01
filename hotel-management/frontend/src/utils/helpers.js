@@ -1,4 +1,5 @@
 // Helper utility functions
+import { BACKEND_ORIGIN } from '../config/api';
 
 // Parse hotel images from JSON string or single URL
 export const parseHotelImages = (imageData) => {
@@ -15,7 +16,9 @@ export const parseHotelImages = (imageData) => {
 export const getImageUrl = (src) => {
   if (!src) return null;
   if (src.startsWith('data:') || src.startsWith('http')) return src;
-  return `http://localhost:5000${src}`;
+  const base = BACKEND_ORIGIN || '';
+  const path = src.startsWith('/') ? src : `/${src}`;
+  return `${base}${path}`;
 };
 
 // Convert file to base64

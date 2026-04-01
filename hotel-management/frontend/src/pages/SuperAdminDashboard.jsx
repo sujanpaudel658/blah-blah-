@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
+import { API_URL } from '../config/api';
 import AdminLayout from '../components/admin/AdminLayout';
 import StatCard from '../components/admin/StatCard';
 
@@ -32,6 +33,16 @@ const SuperAdminDashboard = () => {
   const [txStartDate, setTxStartDate] = useState('');
   const [txEndDate, setTxEndDate] = useState('');
 
+  // Refund Requests State
+  const [showRefundsModal, setShowRefundsModal] = useState(false);
+  const [refundRequests, setRefundRequests] = useState([]);
+  const [refundsLoading, setRefundsLoading] = useState(false);
+
+  // Payout Requests State
+  const [showPayoutsModal, setShowPayoutsModal] = useState(false);
+  const [payoutRequests, setPayoutRequests] = useState([]);
+  const [payoutsLoading, setPayoutsLoading] = useState(false);
+
   // Report Generation State
   const [reportLoading, setReportLoading] = useState(false);
   const [reportStartDate, setReportStartDate] = useState('');
@@ -61,10 +72,10 @@ const SuperAdminDashboard = () => {
     const token = localStorage.getItem('token');
     try {
       const [hotelsRes, adminsRes, guestsRes, pendingRes] = await Promise.all([
-        axios.get('http://localhost:5000/api/superadmin/hotels', { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get('http://localhost:5000/api/superadmin/admins', { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get('http://localhost:5000/api/superadmin/guests', { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get('http://localhost:5000/api/superadmin/hotels/pending', { headers: { Authorization: `Bearer ${token}` } })
+        axios.get(`${API_URL}/superadmin/hotels`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/superadmin/admins`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/superadmin/guests`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/superadmin/hotels/pending`, { headers: { Authorization: `Bearer ${token}` } })
       ]);
       const hotelsList = hotelsRes.data.hotels || [];
       setHotels(hotelsList);
@@ -77,7 +88,7 @@ const SuperAdminDashboard = () => {
 
       // Fetch total revenue for the stat card
       try {
-        const analyticsRes = await axios.get('http://localhost:5000/api/superadmin/analytics', { headers: { Authorization: `Bearer ${token}` } });
+        const analyticsRes = await axios.get(`${API_URL}/superadmin/analytics`, { headers: { Authorization: `Bearer ${token}` } });
         if (analyticsRes.data.success) {
           setTotalRevenue(Number(analyticsRes.data.analytics.overview.total_revenue) || 0);
           setTotalCommission(Number(analyticsRes.data.analytics.overview.total_commission) || 0);
@@ -95,7 +106,7 @@ const SuperAdminDashboard = () => {
       const token = localStorage.getItem('token');
       const params = {};
       if (start && end) { params.startDate = start; params.endDate = end; }
-      const res = await axios.get('http://localhost:5000/api/superadmin/analytics', { headers: { Authorization: `Bearer ${token}` }, params });
+      const res = await axios.get(`${API_URL}/superadmin/analytics`, { headers: { Authorization: `Bearer ${token}` }, params });
       if (res.data.success) setAnalyticsData(res.data.analytics);
     } catch (err) {
       console.error('Analytics fetch error:', err);
@@ -144,7 +155,7 @@ const SuperAdminDashboard = () => {
       const token = localStorage.getItem('token');
       const params = {};
       if (start && end) { params.startDate = start; params.endDate = end; }
-      const res = await axios.get('http://localhost:5000/api/superadmin/transactions', { headers: { Authorization: `Bearer ${token}` }, params });
+      const res = await axios.get(`${API_URL}/superadmin/transactions`, { headers: { Authorization: `Bearer ${token}` }, params });
       if (res.data.success) setTransactionsData(res.data);
     } catch (err) {
       console.error('Transactions fetch error:', err);
@@ -160,6 +171,105 @@ const SuperAdminDashboard = () => {
     fetchTransactions('', '');
   };
 
+  // ─── Refund Management ───
+  const fetchRefundRequests = async () => {
+    setRefundsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/payments/refund/pending`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) setRefundRequests(res.data.requests);
+    } catch (err) {
+      console.error('Refunds fetch error:', err);
+    } finally {
+      setRefundsLoading(false);
+    }
+  };
+
+  const handleApproveRefund = async (requestId) => {
+    if (!window.confirm('Are you sure you want to approve this refund? This will trigger a Khalti reversal if applicable.')) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/payments/refund/approve`, { requestId }, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) {
+        setMessage({ text: 'Refund approved and processed successfully.', type: 'success' });
+        fetchRefundRequests();
+        loadSystemData();
+      }
+    } catch (err) {
+      setMessage({ text: err.response?.data?.message || 'Approval failed.', type: 'error' });
+    }
+  };
+
+  const handleRejectRefund = async (requestId) => {
+    const reason = window.prompt('Enter reason for rejection:');
+    if (reason === null) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/payments/refund/reject`, { requestId, notes: reason }, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) {
+        setMessage({ text: 'Refund request rejected.', type: 'success' });
+        fetchRefundRequests();
+      }
+    } catch (err) {
+      setMessage({ text: err.response?.data?.message || 'Rejection failed.', type: 'error' });
+    }
+  };
+
+  const openRefundsModal = () => {
+    setShowRefundsModal(true);
+    fetchRefundRequests();
+  };
+
+  // ─── Payout Management ───
+  const fetchPayoutRequests = async () => {
+    setPayoutsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/payments/payout/pending`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) setPayoutRequests(res.data.requests);
+    } catch (err) {
+      console.error('Payouts fetch error:', err);
+    } finally {
+      setPayoutsLoading(false);
+    }
+  };
+
+  const handleApprovePayout = async (requestId) => {
+    const notes = window.prompt('Enter transaction reference or notes (optional):');
+    if (notes === null) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/payments/payout/approve`, { requestId, adminNotes: notes }, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) {
+        setMessage({ text: 'Payout approved. Balance deducted.', type: 'success' });
+        fetchPayoutRequests();
+        loadSystemData();
+      }
+    } catch (err) {
+      setMessage({ text: err.response?.data?.message || 'Approval failed.', type: 'error' });
+    }
+  };
+
+  const handleRejectPayout = async (requestId) => {
+    const reason = window.prompt('Enter reason for rejection:');
+    if (reason === null) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_URL}/payments/payout/reject`, { requestId, adminNotes: reason }, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data.success) {
+        setMessage({ text: 'Payout request rejected.', type: 'success' });
+        fetchPayoutRequests();
+      }
+    } catch (err) {
+      setMessage({ text: err.response?.data?.message || 'Rejection failed.', type: 'error' });
+    }
+  };
+
+  const openPayoutsModal = () => {
+    setShowPayoutsModal(true);
+    fetchPayoutRequests();
+  };
+
   // ─── Generate Master Report (PDF) ───
   const generateMasterReport = async () => {
     setReportLoading(true);
@@ -167,7 +277,7 @@ const SuperAdminDashboard = () => {
       const token = localStorage.getItem('token');
       const params = {};
       if (reportStartDate && reportEndDate) { params.startDate = reportStartDate; params.endDate = reportEndDate; }
-      const res = await axios.get('http://localhost:5000/api/superadmin/report', { headers: { Authorization: `Bearer ${token}` }, params });
+      const res = await axios.get(`${API_URL}/superadmin/report`, { headers: { Authorization: `Bearer ${token}` }, params });
       if (res.data.success) {
         const { report } = res.data;
         const reportDate = new Date(report.generatedAt).toLocaleString();
@@ -273,7 +383,7 @@ const SuperAdminDashboard = () => {
     e.preventDefault();
     const token = localStorage.getItem('token');
     try {
-      const response = await axios.post('http://localhost:5000/api/superadmin/hotels', hotelForm, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await axios.post(`${API_URL}/superadmin/hotels`, hotelForm, { headers: { Authorization: `Bearer ${token}` } });
       const successMsg = response.data.adminPromoted
         ? `SUCCESS: Hotel created. User "${hotelForm.adminEmail}" assigned as manager.`
         : 'SUCCESS: Hotel and administrative account created.';
@@ -291,7 +401,7 @@ const SuperAdminDashboard = () => {
     if (!window.confirm('Are you sure you want to verify this hotel? The owner will be promoted to Admin.')) return;
     const token = localStorage.getItem('token');
     try {
-      await axios.put(`http://localhost:5000/api/superadmin/hotels/${hotelId}/verify`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.put(`${API_URL}/superadmin/hotels/${hotelId}/verify`, {}, { headers: { Authorization: `Bearer ${token}` } });
       setMessage({ text: 'Hotel verified successfully! Manager access granted.', type: 'success' });
       loadSystemData();
       setTimeout(() => setMessage({ text: '', type: '' }), 5000);
@@ -399,7 +509,7 @@ const SuperAdminDashboard = () => {
                     <div key={hotel.id} className="admin-card overflow-hidden hover:border-[#B88E2F] transition-colors group">
                       {hotelImages.length > 0 && (
                         <div className="relative h-40 overflow-hidden bg-slate-100">
-                          <img src={hotelImages[0].startsWith('data:') ? hotelImages[0] : (hotelImages[0].startsWith('http') ? hotelImages[0] : `http://localhost:5000${hotelImages[0]}`)} alt={hotel.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                          <img src={hotelImages[0].startsWith('data:') ? hotelImages[0] : (hotelImages[0].startsWith('http') ? hotelImages[0] : `${API_URL.replace("/api", "")}${hotelImages[0]}`)} alt={hotel.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                         </div>
                       )}
                       <div className="p-5 bg-white">
@@ -436,11 +546,28 @@ const SuperAdminDashboard = () => {
                 </button>
                 <button
                   onClick={openTransactionsModal}
-                  className="w-full text-left px-6 py-5 border border-[#E2E2E2] bg-[#F9FAFB] text-[10px] font-bold text-[#1B2B41] uppercase tracking-[0.2em] hover:bg-white transition-colors rounded-sm flex justify-between items-center group"
+                  className="w-full text-left px-6 py-5 border border-[#E2E8F0] bg-[#F9FAFB] text-[10px] font-bold text-[#1B2B41] uppercase tracking-[0.2em] hover:bg-white transition-colors rounded-sm flex justify-between items-center group"
                 >
                   Transaction Logs
                   <span className="material-symbols-outlined text-[18px] text-[#A0AEC0] group-hover:text-[#1B2B41]">history_edu</span>
                 </button>
+                <button
+                  onClick={openRefundsModal}
+                  className="w-full relative text-left px-6 py-5 border border-[#E2E8F0] bg-[#FFF8F8] text-[10px] font-bold text-[#B91C1C] uppercase tracking-[0.2em] hover:bg-white transition-colors rounded-sm flex justify-between items-center group"
+                >
+                  {refundRequests.length > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse z-10"></span>}
+                  Pending Refunds
+                  <span className="material-symbols-outlined text-[18px] text-[#B91C1C]">payments</span>
+                </button>
+                <button
+                  onClick={openPayoutsModal}
+                  className="w-full relative text-left px-6 py-5 border border-[#E2E8F0] bg-[#F0FCF5] text-[10px] font-bold text-[#108548] uppercase tracking-[0.2em] hover:bg-white transition-colors rounded-sm flex justify-between items-center group"
+                >
+                  {payoutRequests.length > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse z-10"></span>}
+                  Payout Requests
+                  <span className="material-symbols-outlined text-[18px] text-[#108548]">account_balance_wallet</span>
+                </button>
+
                 <button
                   onClick={generateMasterReport}
                   disabled={reportLoading}
@@ -479,7 +606,7 @@ const SuperAdminDashboard = () => {
             MODAL: System Audits (Analytics Overview)
             ═══════════════════════════════════════════════════ */}
         {showAnalyticsModal && (
-          <div className="fixed inset-0 bg-[#0A111F]/90 backdrop-blur-sm flex items-center justify-center z-[100] p-4 fade-in">
+          <div className="fixed inset-0 bg-[#0A111F]/90 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 fade-in">
             <div className="bg-white max-w-5xl w-full max-h-[95vh] overflow-hidden rounded-xl flex flex-col shadow-2xl">
               {/* Header */}
               <div className="bg-[#1A2332] px-8 py-6 flex items-center justify-between text-white shrink-0">
@@ -625,7 +752,7 @@ const SuperAdminDashboard = () => {
             MODAL: Transaction Logs
             ═══════════════════════════════════════════════════ */}
         {showTransactionsModal && (
-          <div className="fixed inset-0 bg-[#0A111F]/90 backdrop-blur-sm flex items-center justify-center z-[100] p-4 fade-in">
+          <div className="fixed inset-0 bg-[#0A111F]/90 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 fade-in">
             <div className="bg-white max-w-6xl w-full max-h-[95vh] overflow-hidden rounded-xl flex flex-col shadow-2xl">
               {/* Header */}
               <div className="bg-[#1A2332] px-8 py-6 flex items-center justify-between text-white shrink-0">
@@ -889,6 +1016,143 @@ const SuperAdminDashboard = () => {
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════
+            MODAL: Refund Requests
+            ═══════════════════════════════════════════════════ */}
+        {showRefundsModal && (
+          <div className="fixed inset-0 bg-[#0A111F]/90 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 fade-in">
+            <div className="bg-white max-w-5xl w-full max-h-[90vh] overflow-hidden rounded-xl flex flex-col shadow-2xl">
+              <div className="bg-[#B91C1C] px-8 py-6 flex items-center justify-between text-white shrink-0">
+                <div>
+                  <h2 className="text-lg font-bold uppercase tracking-[0.15em]">Pending Refund Authorizations</h2>
+                  <p className="text-[10px] text-white/70 font-bold uppercase tracking-[0.2em] mt-1">Review and process monetary reversals</p>
+                </div>
+                <button onClick={() => setShowRefundsModal(false)} className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-all">
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+
+              <div className="overflow-y-auto flex-1 custom-scrollbar p-6">
+                {refundsLoading ? (
+                  <div className="py-20 text-center">
+                    <div className="w-8 h-8 border-3 border-[#E2E8F0] border-t-[#B91C1C] rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-xs font-bold text-[#94A3B8] uppercase tracking-widest">Scanning for requests...</p>
+                  </div>
+                ) : refundRequests.length > 0 ? (
+                  <div className="space-y-4">
+                    {refundRequests.map((req) => (
+                      <div key={req.id} className="bg-[#FFFBFB] border border-[#FEE2E2] rounded-lg p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-[10px] font-mono bg-[#B91C1C] text-white px-2 py-0.5 rounded tracking-tighter">REF: {req.booking_reference}</span>
+                            <span className="text-[11px] font-bold text-[#1B2B41] uppercase">{req.guest_name}</span>
+                          </div>
+                          <p className="text-sm font-bold text-[#1B2B41] mb-1">{req.hotel_name}</p>
+                          <p className="text-xs text-[#64748B] italic">" {req.reason} "</p>
+                          <p className="text-[10px] text-[#94A3B8] mt-3 uppercase tracking-widest">Requested on: {new Date(req.created_at).toLocaleString()}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-3 min-w-[200px]">
+                          <div className="text-right">
+                            <p className="text-[9px] font-bold text-[#94A3B8] uppercase tracking-widest">Refund Amount</p>
+                            <p className="text-xl font-black text-[#B91C1C]">NRS {Number(req.amount).toLocaleString()}</p>
+                          </div>
+                          <div className="flex gap-2 w-full">
+                            <button 
+                              onClick={() => handleRejectRefund(req.id)}
+                              className="flex-1 px-4 py-2 border border-[#E2E8F0] text-[10px] font-bold text-[#64748B] uppercase tracking-wider rounded hover:bg-gray-50 transition-colors"
+                            >
+                              Reject
+                            </button>
+                            <button 
+                              onClick={() => handleApproveRefund(req.id)}
+                              className="flex-1 px-4 py-2 bg-[#108548] text-white text-[10px] font-bold uppercase tracking-wider rounded hover:bg-[#0E713D] transition-colors shadow-sm"
+                            >
+                              Approve
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-20 text-center">
+                    <span className="material-symbols-outlined text-4xl text-gray-200 mb-4">verified_user</span>
+                    <p className="text-xs font-bold text-[#94A3B8] uppercase tracking-[0.2em]">No pending refund requests found</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════
+            MODAL: Payout Requests
+            ═══════════════════════════════════════════════════ */}
+        {showPayoutsModal && (
+          <div className="fixed inset-0 bg-[#0A111F]/90 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 fade-in">
+            <div className="bg-white max-w-5xl w-full max-h-[90vh] overflow-hidden rounded-xl flex flex-col shadow-2xl">
+              <div className="bg-[#108548] px-8 py-6 flex items-center justify-between text-white shrink-0">
+                <div>
+                  <h2 className="text-lg font-bold uppercase tracking-[0.15em]">Hotel Payout Management</h2>
+                  <p className="text-[10px] text-white/70 font-bold uppercase tracking-[0.2em] mt-1">Review and fulfill withdrawal requests from properties</p>
+                </div>
+                <button onClick={() => setShowPayoutsModal(false)} className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-all">
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+
+              <div className="overflow-y-auto flex-1 custom-scrollbar p-6">
+                {payoutsLoading ? (
+                  <div className="py-20 text-center">
+                    <div className="w-8 h-8 border-3 border-[#E2E8F0] border-t-[#108548] rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-xs font-bold text-[#94A3B8] uppercase tracking-widest">Loading requests...</p>
+                  </div>
+                ) : payoutRequests.length > 0 ? (
+                  <div className="space-y-4">
+                    {payoutRequests.map((req) => (
+                      <div key={req.id} className="bg-[#F0FCF5] border border-[#DCFCE7] rounded-lg p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                        <div className="flex-1">
+                          <h3 className="text-sm font-black text-[#1B2B41] uppercase mb-1">{req.hotel_name}</h3>
+                          <div className="flex gap-4 items-center">
+                            <span className="text-[10px] bg-white border border-[#DCFCE7] px-2 py-0.5 rounded font-bold text-[#64748B]">Current Balance: Rs. {Number(req.current_balance).toLocaleString()}</span>
+                          </div>
+                          <p className="text-xs text-[#64748B] italic mt-3">" {req.notes} "</p>
+                          <p className="text-[10px] text-[#94A3B8] mt-4 uppercase tracking-widest">Requested on: {new Date(req.created_at).toLocaleString()}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-3 min-w-[200px]">
+                          <div className="text-right">
+                            <p className="text-[9px] font-bold text-[#94A3B8] uppercase tracking-widest">Payout Amount</p>
+                            <p className="text-xl font-black text-[#108548]">NRS {Number(req.amount).toLocaleString()}</p>
+                          </div>
+                          <div className="flex gap-2 w-full">
+                            <button 
+                              onClick={() => handleRejectPayout(req.id)}
+                              className="flex-1 px-4 py-2 border border-[#E2E8F0] text-[10px] font-bold text-[#64748B] uppercase tracking-wider rounded hover:bg-gray-50 transition-colors"
+                            >
+                              Reject
+                            </button>
+                            <button 
+                              onClick={() => handleApprovePayout(req.id)}
+                              className="flex-1 px-4 py-2 bg-[#1B2B41] text-[#C4993E] text-[10px] font-bold uppercase tracking-wider rounded hover:bg-[#263345] transition-colors shadow-sm"
+                            >
+                              Approve
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-20 text-center">
+                    <span className="material-symbols-outlined text-4xl text-gray-200 mb-4">account_balance</span>
+                    <p className="text-xs font-bold text-[#94A3B8] uppercase tracking-[0.2em]">No pending payout requests</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
