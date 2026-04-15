@@ -1,12 +1,4 @@
--- Fix: Field 'total_price' doesn't have a default value
--- This migration handles the orphaned total_price column in the bookings table
--- Run once against your DB (local MySQL or Docker).
---
--- Docker example:
---   docker exec -i hotel_db mysql -uroot -proot nepal_stays < database/migrations/004_fix_total_price_column.sql
---
--- Local example:
---   mysql -u root -p nepal_stays < database/migrations/004_fix_total_price_column.sql
+
 
 SET FOREIGN_KEY_CHECKS = 0;
 

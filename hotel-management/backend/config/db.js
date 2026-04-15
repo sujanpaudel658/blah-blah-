@@ -11,17 +11,20 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
-// Test connection on startup
-pool.getConnection((err, connection) => {
-  if (err) {
-    console.error('❌ Database connection failed:', err.message);
-    return;
-  }
-  console.log('✓ Database connected');
-  connection.query('SET GLOBAL max_allowed_packet=67108864', (err) => {
-    if (err && process.env.DEBUG_DB === '1') console.warn('[db] max_allowed_packet:', err.message);
-    connection.release();
+// Skip startup probe in tests to avoid side effects and noisy logs.
+if (process.env.NODE_ENV !== 'test') {
+  // Test connection on startup
+  pool.getConnection((err, connection) => {
+    if (err) {
+      console.error('❌ Database connection failed:', err.message);
+      return;
+    }
+    console.log('✓ Database connected');
+    connection.query('SET GLOBAL max_allowed_packet=67108864', (err) => {
+      if (err && process.env.DEBUG_DB === '1') console.warn('[db] max_allowed_packet:', err.message);
+      connection.release();
+    });
   });
-});
+}
 
 module.exports = pool.promise();

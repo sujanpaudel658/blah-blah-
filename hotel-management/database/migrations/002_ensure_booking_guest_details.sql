@@ -1,11 +1,4 @@
--- Fix: Table 'nepal_stays.booking_guest_details' doesn't exist
--- Run once against your DB (local MySQL or Docker).
---
--- Docker example:
---   docker exec -i hotel_db mysql -uroot -proot nepal_stays < database/migrations/002_ensure_booking_guest_details.sql
---
--- Local example:
---   mysql -u root -p nepal_stays < database/migrations/002_ensure_booking_guest_details.sql
+
 
 CREATE TABLE IF NOT EXISTS booking_guest_details (
   booking_id INT NOT NULL PRIMARY KEY,

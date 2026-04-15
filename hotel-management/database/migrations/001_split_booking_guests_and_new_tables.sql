@@ -1,10 +1,5 @@
--- Run once against an EXISTING database (local or Docker) to align with schema.sql.
--- Fresh installs from database/schema.sql (including new Docker volumes) do not need this.
---
--- Example:
---   mysql -h 127.0.0.1 -P 3307 -u root -proot nepal_stays < database/migrations/001_split_booking_guests_and_new_tables.sql
---
--- Requires MySQL 8.0.12+ (ADD COLUMN IF NOT EXISTS) and 8.0.29+ (DROP COLUMN IF EXISTS).
+
+
 
 SET FOREIGN_KEY_CHECKS = 0;
 
@@ -81,5 +76,4 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 SET FOREIGN_KEY_CHECKS = 1;
 
--- Optional: add pidx index if not already created (ignore error if duplicate name)
--- CREATE INDEX idx_payments_pidx ON payments (pidx);
+

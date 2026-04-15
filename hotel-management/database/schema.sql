@@ -2,7 +2,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- Hotel Management System Database Schema
 -- Used for local installs and Docker (./database/schema.sql -> /docker-entrypoint-initdb.d/)
 
--- Create hotels table first (referenced by users)
+--  hotels table  (referenced by users)
 CREATE TABLE IF NOT EXISTS hotels (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS hotels (
   longitude DECIMAL(11,8),
   status ENUM('pending', 'verified', 'rejected') DEFAULT 'pending',
   owner_id INT NULL,
+  listing_contract_accepted TINYINT(1) NOT NULL DEFAULT 0,
+  listing_contract_accepted_at DATETIME NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   balance DECIMAL(10,2) DEFAULT 0.00,
@@ -25,7 +27,7 @@ CREATE TABLE IF NOT EXISTS hotels (
   INDEX idx_status (status)
 );
 
--- Create users table with role-based access control
+--  users table with role-based access control
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   google_id VARCHAR(255) UNIQUE,
@@ -62,6 +64,7 @@ CREATE TABLE IF NOT EXISTS room_types (
   amenities JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_room_types_hotel_price (hotel_id, base_price),
   CONSTRAINT fk_room_types_hotel FOREIGN KEY (hotel_id) REFERENCES hotels(id) ON DELETE CASCADE
 );
 
@@ -205,6 +208,7 @@ CREATE TABLE IF NOT EXISTS refund_requests (
   reason TEXT,
   status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
   admin_notes TEXT,
+  rejection_category VARCHAR(255) NULL,
   approved_at TIMESTAMP NULL,
   approved_by INT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -420,9 +424,6 @@ CREATE TABLE IF NOT EXISTS hotel_payout_transactions (
   INDEX idx_payout_tx_request (payout_request_id)
 );
 
--- Insert default superadmin user (password should be hashed in production)
-INSERT INTO users (full_name, email, password, role)
-VALUES ('Super Admin', 'superadmin@nepalstays.com', '$2b$10$yourhashedpasswordhere', 'superadmin')
-ON DUPLICATE KEY UPDATE full_name = full_name;
+
 
 SET FOREIGN_KEY_CHECKS = 1;
