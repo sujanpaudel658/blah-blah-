@@ -1,7 +1,6 @@
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 
-// Verify JWT token
 exports.protect = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -13,7 +12,7 @@ exports.protect = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const [users] = await db.query(
-      'SELECT id, full_name, email, role, hotel_id FROM users WHERE id = ?',
+      'SELECT id, full_name, email, role, hotel_id, is_verified FROM users WHERE id = ?',
       [decoded.id]
     );
 
@@ -22,6 +21,19 @@ exports.protect = async (req, res, next) => {
     }
 
     req.user = users[0];
+
+    const verified =
+      req.user.is_verified === true ||
+      req.user.is_verified === 1 ||
+      req.user.is_verified === '1';
+    if (!verified && req.user.role !== 'superadmin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Please verify your email to continue.',
+        code: 'EMAIL_NOT_VERIFIED'
+      });
+    }
+
     next();
   } catch (error) {
     console.error('Auth middleware error:', error.message);
@@ -29,7 +41,6 @@ exports.protect = async (req, res, next) => {
   }
 };
 
-// Check if user has required role
 exports.authorize = (...roles) => (req, res, next) => {
   if (!req.user || !roles.includes(req.user.role)) {
     return res.status(403).json({
@@ -40,7 +51,6 @@ exports.authorize = (...roles) => (req, res, next) => {
   next();
 };
 
-// Role-specific middleware shortcuts
 exports.superAdminOnly = (req, res, next) => {
   if (req.user?.role !== 'superadmin') {
     return res.status(403).json({ success: false, message: 'Access denied. Super Admin only.' });
@@ -55,6 +65,5 @@ exports.adminOnly = (req, res, next) => {
   next();
 };
 
-// Alias for consistency with userRoutes
 exports.authenticateToken = exports.protect;
 exports.requireRole = (roles) => exports.authorize(...roles);

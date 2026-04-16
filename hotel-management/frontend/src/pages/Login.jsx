@@ -1,21 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config/api';
 
 const Login = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(location.state?.message || '');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const [showPasswordSet, setShowPasswordSet] = useState(false);
   const [passwordSetEmail, setPasswordSetEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordSetError, setPasswordSetError] = useState('');
+  const [passwordSetSuccess, setPasswordSetSuccess] = useState('');
 
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
@@ -80,14 +78,15 @@ const Login = () => {
     if (!email || !password) { setError('Please enter your email and password.'); return; }
     setLoading(true);
     try {
-      const res = await axios.post(`${API_URL}/auth/login`, { email, password });
+      const res = await axios.post(`${API_URL}/auth/login`, { email, password, clientOrigin: window.location.origin });
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
       navigate(res.data.redirectPath || '/guest/dashboard');
     } catch (err) {
       if (err.response?.data?.requiresPasswordSet) {
         setError(err.response.data.message);
-        setPasswordSetEmail(email);
+        setPasswordSetEmail(err.response.data.passwordSetupEmail || email);
+        setPasswordSetSuccess(err.response.data.passwordSetupEmailSent ? 'A secure setup link was sent to your email.' : '');
         setShowPasswordSet(true);
       } else {
         setError(err.response?.data?.message || 'Invalid credentials. Please try again.');
@@ -100,14 +99,17 @@ const Login = () => {
   const handleSetPasswordSubmit = async (e) => {
     e.preventDefault();
     setPasswordSetError('');
-    if (newPassword !== confirmPassword) { setPasswordSetError('Passwords do not match.'); return; }
+    setPasswordSetSuccess('');
+    if (!passwordSetEmail) { setPasswordSetError('Email is required.'); return; }
     setLoading(true);
     try {
-      await axios.post(`${API_URL}/auth/set-password`, { email: passwordSetEmail, newPassword });
-      alert('Password set successfully! You can now sign in.');
-      setShowPasswordSet(false);
+      const res = await axios.post(`${API_URL}/auth/request-password-reset`, {
+        email: passwordSetEmail,
+        clientOrigin: window.location.origin
+      });
+      setPasswordSetSuccess(res.data.message || 'Setup link sent. Check your inbox.');
     } catch (err) {
-      setPasswordSetError(err.response?.data?.message || 'Failed to set password.');
+      setPasswordSetError(err.response?.data?.message || 'Failed to send setup link.');
     } finally {
       setLoading(false);
     }
@@ -121,7 +123,7 @@ const Login = () => {
     try {
       const res = await axios.post(`${API_URL}/auth/request-password-reset`, {
         email: forgotPasswordEmail,
-        clientOrigin: typeof window !== 'undefined' ? window.location.origin : undefined,
+        clientOrigin: window.location.origin
       });
       setForgotPasswordSuccess(res.data.message || 'Check your email for recovery instructions.');
     } catch (err) {
@@ -136,23 +138,17 @@ const Login = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col md:flex-row bg-[#FAF8F5] overflow-hidden">
-      {/* Left: Form Section */}
       <div className="w-full md:w-1/2 h-full flex flex-col justify-center px-6 md:px-12 bg-[#FAF8F5] overflow-hidden">
         <div className="max-w-[420px] w-full mx-auto">
-          {/* Brand */}
           <div className="mb-10">
             <div className="flex items-center gap-2 mb-6">
-              <img
-                src="/images/website_logo.png"
-                alt="StayNepal"
-                className="h-16 w-auto max-w-[220px] object-contain"
-              />
+              <span className="material-symbols-outlined text-[#C4993E] text-[22px]">apartment</span>
+              <span className="font-bold text-[16px] text-[#1A2332]" style={{ fontFamily: "'Playfair Display', serif" }}>StayNepal</span>
             </div>
             <h1 className="text-3xl font-bold text-[#1A2332] mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>Welcome back</h1>
             <p className="text-[15px] text-[#6B7B8D]">Sign in to manage your bookings and explore new destinations.</p>
           </div>
 
-          {/* Form Card */}
           <div className="bg-white rounded-2xl shadow-sm border border-[#E8E4DE] p-8">
             {error && (
               <div className="mb-6 bg-[#FDEDED] border-l-3 border-[#C0392B] p-4 rounded-lg text-[#C0392B] text-[13px] font-medium">
@@ -162,14 +158,13 @@ const Login = () => {
 
             {showPasswordSet ? (
               <form onSubmit={handleSetPasswordSubmit} className="space-y-5">
-                <h2 className="text-lg font-bold text-[#1A2332] mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>Set Your Password</h2>
-                <p className="text-[13px] text-[#6B7B8D] mb-4">Create a password for your account to sign in with email.</p>
+                <h2 className="text-lg font-bold text-[#1A2332] mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>Secure Password Setup</h2>
+                <p className="text-[13px] text-[#6B7B8D] mb-4">For security, password setup is only allowed from an email verification link.</p>
                 {passwordSetError && <p className="text-[#C0392B] text-[13px]">{passwordSetError}</p>}
+                {passwordSetSuccess && <p className="text-[#2D8659] text-[13px]">{passwordSetSuccess}</p>}
                 <div><label className={labelClass}>Email</label><input type="email" value={passwordSetEmail} disabled className={`${inputClass} opacity-60`} /></div>
-                <div><label className={labelClass}>New Password</label><input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className={inputClass} required /></div>
-                <div><label className={labelClass}>Confirm Password</label><input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className={inputClass} required /></div>
                 <button type="submit" disabled={loading} className="w-full bg-[#C4993E] text-white py-3.5 rounded-lg font-semibold text-[14px] hover:bg-[#AE872E] transition-all">
-                  {loading ? 'Setting password...' : 'Set Password'}
+                  {loading ? 'Sending link...' : 'Send Setup Link'}
                 </button>
                 <button type="button" onClick={() => setShowPasswordSet(false)} className="w-full text-center text-[13px] text-[#6B7B8D] mt-3 hover:text-[#1A2332]">← Back to sign in</button>
               </form>
@@ -179,7 +174,7 @@ const Login = () => {
                 <p className="text-[13px] text-[#6B7B8D] mb-4">Enter your email and we'll send you instructions to reset your password.</p>
                 {forgotPasswordError && <p className="text-[#C0392B] text-[13px]">{forgotPasswordError}</p>}
                 {forgotPasswordSuccess && <p className="text-[#2D8659] text-[13px]">{forgotPasswordSuccess}</p>}
-                <div><label className={labelClass}>Email Address</label><input type="email" value={forgotPasswordEmail} onChange={(e) => setForgotPasswordEmail(e.target.value)} className={inputClass} placeholder="you@example.com" required /></div>
+                <div><label className={labelClass}>Email Address</label><input type="email" value={forgotPasswordEmail} onChange={(e) => setForgotPasswordEmail(e.target.value)} className={inputClass} placeholder="rajesh@gmail.com" required /></div>
                 <button type="submit" disabled={loading} className="w-full bg-[#C4993E] text-white py-3.5 rounded-lg font-semibold text-[14px] hover:bg-[#AE872E] transition-all">
                   {loading ? 'Sending...' : 'Send Reset Link'}
                 </button>
@@ -187,7 +182,7 @@ const Login = () => {
               </form>
             ) : (
               <form onSubmit={handleLoginSubmit} className="space-y-5">
-                <div><label className={labelClass}>Email Address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} placeholder="you@example.com" required /></div>
+                <div><label className={labelClass}>Email Address</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} placeholder="rajesh@example.com" required /></div>
                 <div><label className={labelClass}>Password</label><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} placeholder="Enter your password" required /></div>
 
                 <div className="flex items-center justify-between">
@@ -219,7 +214,6 @@ const Login = () => {
         </div>
       </div>
 
-      {/* Right: Visual Section */}
       <div className="hidden md:flex md:w-1/2 h-full relative items-end justify-start overflow-hidden">
         <img src="/images/unnamed.png" alt="Hotel" className="absolute inset-0 w-full h-full object-cover object-center" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#1A2332] via-[#1A2332]/30 to-transparent"></div>

@@ -3,27 +3,18 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config/api';
 
-/**
- * ResetPassword Component
- * 
- * Secure terminal for credential re-establishment.
- * Pairs with the Login portal's dark aesthetic.
- */
+// Password reset from emailed token (?token=).
 const ResetPassword = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
 
-  // Security states
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
-  /**
-   * Submit New Credentials
-   */
   const handleResetSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -70,10 +61,8 @@ const ResetPassword = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col md:flex-row bg-[#FAF8F5] overflow-hidden">
-      {/* Left: Form Section */}
       <div className="w-full md:w-1/2 h-full flex flex-col justify-center px-6 md:px-12 bg-[#FAF8F5] overflow-hidden">
         <div className="max-w-[420px] w-full mx-auto">
-          {/* Brand */}
           <div className="mb-10">
             <div className="flex items-center gap-2 mb-6">
               <div className="h-16 w-44 overflow-hidden flex items-center">
@@ -88,7 +77,6 @@ const ResetPassword = () => {
             <p className="text-[15px] text-[#6B7B8D]">Set a new secure password to regain access to your account.</p>
           </div>
 
-          {/* Form Card */}
           <div className="bg-white rounded-2xl shadow-sm border border-[#E8E4DE] p-8">
             {error && (
               <div className="mb-6 bg-[#FDEDED] border-l-3 border-[#C0392B] p-4 rounded-lg text-[#C0392B] text-[13px] font-medium">
@@ -152,7 +140,6 @@ const ResetPassword = () => {
         </div>
       </div>
 
-      {/* Right: Visual Section */}
       <div className="hidden md:flex md:w-1/2 h-full relative items-end justify-start overflow-hidden">
         <img src="/images/unnamed.png" alt="Hotel" className="absolute inset-0 w-full h-full object-cover object-center" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#1A2332] via-[#1A2332]/30 to-transparent"></div>

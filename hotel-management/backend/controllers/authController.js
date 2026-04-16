@@ -7,7 +7,6 @@ const emailService = require('../services/email.service');
 const { resolveFrontendBase } = require('../utils/resolveFrontendBase');
 const crypto = require('crypto');
 
-// Helper functions
 const createToken = (payload) => jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
 const formatUser = (user) => ({
@@ -25,7 +24,6 @@ const getRedirectPath = (role) => ({
   admin: '/admin/dashboard'
 }[role] || '/guest/dashboard');
 
-// Signup handler
 exports.signup = async (req, res) => {
   try {
     const { fullName, email, phone, password } = req.body;
@@ -43,7 +41,6 @@ exports.signup = async (req, res) => {
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const verificationTokenHash = await bcrypt.hash(verificationToken, 10);
 
-    // Check if email matches a hotel admin email
     const [hotels] = await db.query('SELECT id FROM hotels WHERE email = ?', [email]);
     const isHotelAdmin = hotels.length > 0;
     const role = isHotelAdmin ? 'admin' : 'guest';
@@ -63,7 +60,6 @@ exports.signup = async (req, res) => {
     );
     const verificationEmailSent = !!emailResult.success;
     if (!verificationEmailSent) {
-      // Keep signup and email delivery in sync: do not leave unverified user rows without a mail path.
       await db.query('DELETE FROM users WHERE id = ?', [result.insertId]);
       const message =
         emailResult.reason === 'not_configured'
@@ -99,7 +95,6 @@ exports.signup = async (req, res) => {
   }
 };
 
-// Login handler
 exports.login = async (req, res) => {
   try {
     const { email, password, clientOrigin } = req.body;
@@ -114,8 +109,7 @@ exports.login = async (req, res) => {
     }
 
     const user = users[0];
-    
-    // Google-only accounts must set password via a tokenized email link.
+
     if (!user.password) {
       const resetToken = crypto.randomBytes(32).toString('hex');
       const resetTokenHash = await bcrypt.hash(resetToken, 10);
@@ -158,6 +152,18 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
+    const verified =
+      user.is_verified === true || user.is_verified === 1 || user.is_verified === '1';
+    if (!verified && user.role !== 'superadmin') {
+      return res.status(403).json({
+        success: false,
+        message:
+          'Please verify your email before signing in. Check your inbox for the verification link.',
+        requiresEmailVerification: true,
+        email: user.email
+      });
+    }
+
     const token = createToken({ id: user.id, email: user.email, role: user.role });
 
     res.json({
@@ -173,7 +179,6 @@ exports.login = async (req, res) => {
   }
 };
 
-// Google OAuth handler
 exports.googleAuth = async (req, res) => {
   try {
     const { credential } = req.body;
@@ -181,7 +186,6 @@ exports.googleAuth = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No credential provided' });
     }
 
-    // Decode Google JWT
     const parts = credential.split('.');
     if (parts.length !== 3) {
       return res.status(400).json({ success: false, message: 'Invalid credential format' });
@@ -190,13 +194,11 @@ exports.googleAuth = async (req, res) => {
     const decoded = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
     const { email, name, sub: googleId } = decoded;
 
-    // Check if email matches a hotel admin
     const [hotels] = await db.query('SELECT id FROM hotels WHERE email = ?', [email]);
     const isHotelAdmin = hotels.length > 0;
     const hotelId = isHotelAdmin ? hotels[0].id : null;
     const role = isHotelAdmin ? 'admin' : 'guest';
 
-    // Find or create user
     const [existingUsers] = await db.query(
       'SELECT * FROM users WHERE email = ? OR google_id = ?',
       [email, googleId]
@@ -207,27 +209,29 @@ exports.googleAuth = async (req, res) => {
     if (existingUsers.length > 0) {
       user = existingUsers[0];
       userId = user.id;
-      
-      // Update google_id if not set
+
       if (!user.google_id) {
         await db.query('UPDATE users SET google_id = ? WHERE id = ?', [googleId, userId]);
       }
 
-      // Promote to admin if email matches hotel
       if (isHotelAdmin && user.role !== 'admin') {
         await db.query('UPDATE users SET role = ?, hotel_id = ? WHERE id = ?', [role, hotelId, userId]);
         user.role = role;
         user.hotel_id = hotelId;
       }
     } else {
-      // Create new user
       const [result] = await db.query(
-        'INSERT INTO users (google_id, full_name, email, role, hotel_id) VALUES (?, ?, ?, ?, ?)',
-        [googleId, name, email, role, hotelId]
+        'INSERT INTO users (google_id, full_name, email, role, hotel_id, is_verified) VALUES (?, ?, ?, ?, ?, ?)',
+        [googleId, name, email, role, hotelId, true]
       );
       userId = result.insertId;
       const [newUsers] = await db.query('SELECT * FROM users WHERE id = ?', [userId]);
       user = newUsers[0];
+    }
+
+    if (!user.is_verified) {
+      await db.query('UPDATE users SET is_verified = 1 WHERE id = ?', [userId]);
+      user.is_verified = 1;
     }
 
     const token = createToken({ id: userId, email: user.email, role: user.role });
@@ -245,7 +249,6 @@ exports.googleAuth = async (req, res) => {
   }
 };
 
-// Get current user
 exports.getMe = async (req, res) => {
   try {
     const [users] = await db.query(
@@ -264,7 +267,6 @@ exports.getMe = async (req, res) => {
   }
 };
 
-// Update name / email / phone (all authenticated roles)
 exports.updateProfile = async (req, res) => {
   try {
     const fullName = (req.body.fullName || req.body.name || '').trim();
@@ -300,7 +302,6 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// Change password (email/password accounts)
 exports.updatePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -369,7 +370,6 @@ exports.uploadProfilePhoto = async (req, res) => {
   }
 };
 
-// Set password for Google users
 exports.setPassword = async (req, res) => {
   try {
     const { token, newPassword } = req.body;
@@ -418,7 +418,6 @@ exports.setPassword = async (req, res) => {
   }
 };
 
-// Verify email handler
 exports.verifyEmail = async (req, res) => {
   try {
     const { token } = req.body;
@@ -446,10 +445,8 @@ exports.verifyEmail = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email already verified' });
     }
 
-    // Mark email as verified
     await db.query('UPDATE users SET is_verified = 1, verification_token = NULL WHERE id = ?', [user.id]);
 
-    // Send welcome email
     try {
       await emailService.sendWelcomeEmail(user.email, user.full_name);
     } catch (emailError) {
@@ -466,7 +463,75 @@ exports.verifyEmail = async (req, res) => {
   }
 };
 
-// Request password reset
+exports.resendVerificationEmail = async (req, res) => {
+  try {
+    const { email, password, clientOrigin } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    }
+
+    const [users] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
+    if (users.length === 0) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    const user = users[0];
+    const verified =
+      user.is_verified === true || user.is_verified === 1 || user.is_verified === '1';
+    if (verified) {
+      return res.status(400).json({
+        success: false,
+        code: 'ALREADY_VERIFIED',
+        message: 'This email is already verified. You can sign in.'
+      });
+    }
+
+    if (!user.password) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'This account uses Google sign-in. Sign in with Google or set a password using the link from your email.'
+      });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationTokenHash = await bcrypt.hash(verificationToken, 10);
+    await db.query('UPDATE users SET verification_token = ? WHERE id = ?', [
+      verificationTokenHash,
+      user.id
+    ]);
+
+    const frontendBase = resolveFrontendBase(clientOrigin);
+    const emailResult = await emailService.sendVerificationEmail(
+      email,
+      verificationToken,
+      user.full_name,
+      frontendBase
+    );
+    if (!emailResult.success) {
+      const message =
+        emailResult.reason === 'not_configured'
+          ? 'Verification email could not be sent. Email service is not configured.'
+          : 'Verification email could not be sent. Please try again later.';
+      return res.status(503).json({ success: false, message });
+    }
+
+    res.json({
+      success: true,
+      verificationEmailSent: true,
+      message: 'A new verification link has been sent to your email.'
+    });
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    res.status(500).json({ success: false, message: 'Failed to resend verification email' });
+  }
+};
+
 exports.requestPasswordReset = async (req, res) => {
   try {
     const { email, clientOrigin } = req.body;
@@ -478,7 +543,6 @@ exports.requestPasswordReset = async (req, res) => {
     const [users] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
     
     if (users.length === 0) {
-      // Don't reveal if email exists (security best practice)
       return res.json({ success: true, message: 'If email exists, password reset link has been sent' });
     }
 
@@ -487,14 +551,12 @@ exports.requestPasswordReset = async (req, res) => {
     const resetTokenHash = await bcrypt.hash(resetToken, 10);
     const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
 
-    // Save reset token
     await db.query(
       'UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE id = ?',
       [resetTokenHash, resetTokenExpiry, user.id]
     );
 
     const frontendBase = resolveFrontendBase(clientOrigin);
-    // Send password reset email
     const resetMailResult = await emailService.sendPasswordResetEmail(
       email,
       resetToken,
@@ -517,7 +579,6 @@ exports.requestPasswordReset = async (req, res) => {
   }
 };
 
-// Reset password with token
 exports.resetPassword = async (req, res) => {
   try {
     const { token, newPassword } = req.body;
@@ -545,15 +606,12 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid or expired reset token' });
     }
 
-    // Check if token has expired
     if (new Date() > new Date(user.reset_token_expiry)) {
       return res.status(400).json({ success: false, message: 'Reset token has expired' });
     }
 
-    // Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // Update password and clear reset token
     await db.query(
       'UPDATE users SET password = ?, reset_token = NULL, reset_token_expiry = NULL WHERE id = ?',
       [hashedPassword, user.id]

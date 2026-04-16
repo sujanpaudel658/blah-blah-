@@ -3,7 +3,6 @@ const router = express.Router();
 const db = require('../config/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
-// Assign hotel to a user (SuperAdmin only)
 router.post('/assign-hotel', authenticateToken, requireRole(['superadmin']), async (req, res) => {
   const { email, hotelId } = req.body;
 
@@ -33,7 +32,6 @@ router.post('/assign-hotel', authenticateToken, requireRole(['superadmin']), asy
   }
 });
 
-// Get all users (SuperAdmin only)
 router.get('/', authenticateToken, requireRole(['superadmin']), async (req, res) => {
   try {
     const [users] = await db.query(
@@ -57,7 +55,6 @@ router.get('/', authenticateToken, requireRole(['superadmin']), async (req, res)
   }
 });
 
-// Update user role (SuperAdmin only)
 router.patch('/:id/role', authenticateToken, requireRole(['superadmin']), async (req, res) => {
   const { id } = req.params;
   const { role, hotelId } = req.body;
@@ -71,7 +68,6 @@ router.patch('/:id/role', authenticateToken, requireRole(['superadmin']), async 
       });
     }
 
-    // If promoting to admin, hotel_id is required
     if (role === 'admin' && !hotelId) {
       return res.status(400).json({
         success: false,
@@ -104,12 +100,11 @@ router.patch('/:id/role', authenticateToken, requireRole(['superadmin']), async 
   }
 });
 
-// Get bookings for current user (Guest only)
 router.get('/my-bookings', authenticateToken, async (req, res) => {
   try {
     const [bookings] = await db.query(
       `SELECT b.*, h.name as hotel_name, h.address as hotel_address, h.city as hotel_city, h.image as hotel_image, h.phone as hotel_phone,
-              r.room_number, rt.name as room_type,
+              r.room_number, rt.name as room_type, rt.max_occupancy as room_max_occupancy,
               bgd.guest_name, bgd.guest_email, bgd.guest_phone, bgd.special_requests,
               (SELECT COUNT(*) FROM reviews WHERE booking_id = b.id) as is_reviewed
        FROM bookings b

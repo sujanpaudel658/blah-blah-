@@ -9,6 +9,7 @@ const {
   getMe,
   setPassword,
   verifyEmail,
+  resendVerificationEmail,
   requestPasswordReset,
   resetPassword,
   updateProfile,
@@ -56,6 +57,7 @@ router.post('/login', login);
 router.post('/google', googleAuth);
 router.post('/set-password', setPassword);
 router.post('/verify-email', verifyEmail);
+router.post('/resend-verification', resendVerificationEmail);
 router.post('/request-password-reset', requestPasswordReset);
 router.post('/reset-password', resetPassword);
 router.get('/me', protect, getMe);
