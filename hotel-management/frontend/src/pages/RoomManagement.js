@@ -186,7 +186,6 @@ const RoomManagement = () => {
       onLogout={handleLogout}
     >
       <div className="flex flex-col lg:flex-row gap-8 pb-12">
-        {/* Left Stats Sidebar */}
         <aside className="w-full lg:w-64 space-y-6">
           <div className="admin-card p-5 bg-white">
             <span className="admin-label mb-3">Filter Catalog</span>
@@ -219,7 +218,6 @@ const RoomManagement = () => {
           </div>
         </aside>
 
-        {/* Main Interface */}
         <div className="flex-1 space-y-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="relative flex-1">
@@ -328,14 +326,19 @@ const RoomManagement = () => {
         </div>
       </div>
 
-      {/* Side Form Modal */}
       {showFormModal && (
         <div className="fixed inset-0 z-[100] bg-[#111B2B]/80 flex items-center justify-end">
           <div className="bg-white h-full w-full max-w-lg shadow-xl border-l border-[#E2E2E2] fade-in flex flex-col">
             <header className="bg-[#1B2B41] px-8 py-6 flex items-center justify-between text-white shrink-0">
               <div>
-                <h3 className="text-lg font-bold uppercase tracking-widest">{isEditing ? 'Sync Unit Config' : 'Assign Unit '}</h3>
-                <p className="text-[10px] text-[#A0AEC0] mt-0.5 font-bold uppercase tracking-widest">Inventory Management Terminal</p>
+                <h3 className="text-lg font-bold leading-snug">
+                  {isEditing ? 'Edit your room' : 'Add a room'}
+                </h3>
+                <p className="text-[11px] text-[#CBD5E1] mt-1.5 leading-relaxed max-w-md font-normal normal-case">
+                  {isEditing
+                    ? 'Change the room number, floor, type, or availability. Click Save when you’re done — guests will see the updated information.'
+                    : 'Enter the room number, floor, and type so it can be booked. You can set availability and notes before saving.'}
+                </p>
               </div>
               <button onClick={() => setShowFormModal(false)} className="w-8 h-8 flex items-center justify-center hover:bg-white/10 transition-colors">
                 <span className="material-symbols-outlined text-sm">close</span>

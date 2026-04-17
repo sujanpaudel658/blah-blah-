@@ -1,18 +1,14 @@
 const db = require('../config/db');
 
-// Helper for consistent error responses
 const handleError = (res, error, message) => {
     console.error(`${message}:`, error.message);
     res.status(500).json({ success: false, message: `${message}: ${error.message}` });
 };
 
-// --- Room Types ---
-
 exports.createRoomType = async (req, res) => {
     try {
         const { hotel_id, name, description, base_price, max_occupancy, amenities } = req.body;
 
-        // Check if user is admin of this hotel
         if (req.user.role === 'admin' && req.user.hotel_id !== parseInt(hotel_id)) {
             return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
@@ -33,7 +29,6 @@ exports.updateRoomType = async (req, res) => {
         const { id } = req.params;
         const { name, description, base_price, max_occupancy, amenities } = req.body;
 
-        // Verify ownership
         const [existing] = await db.query('SELECT hotel_id FROM room_types WHERE id = ?', [id]);
         if (existing.length === 0) return res.status(404).json({ success: false, message: 'Category not found' });
 
@@ -56,7 +51,6 @@ exports.deleteRoomType = async (req, res) => {
     try {
         const { id } = req.params;
 
-        // Verify ownership
         const [existing] = await db.query('SELECT hotel_id FROM room_types WHERE id = ?', [id]);
         if (existing.length === 0) return res.status(404).json({ success: false, message: 'Category not found' });
 
@@ -64,7 +58,6 @@ exports.deleteRoomType = async (req, res) => {
             return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
 
-        // Check if there are rooms assigned to this type
         const [rooms] = await db.query('SELECT id FROM rooms WHERE room_type_id = ?', [id]);
         if (rooms.length > 0) {
             return res.status(400).json({ success: false, message: 'Cannot delete category with registered units. Reassign units first.' });
@@ -91,7 +84,6 @@ exports.getRoomTypes = async (req, res) => {
             GROUP BY rt.id
         `, [hotelId]);
 
-        // Parse amenities and floors
         roomTypes.forEach(rt => {
             try {
                 rt.amenities = rt.amenities ? (typeof rt.amenities === 'string' ? JSON.parse(rt.amenities) : rt.amenities) : [];
@@ -108,13 +100,10 @@ exports.getRoomTypes = async (req, res) => {
     }
 };
 
-// --- Rooms ---
-
 exports.createRoom = async (req, res) => {
     try {
         let { hotel_id, room_type_id, room_number, floor, status, notes } = req.body;
 
-        // Ensure IDs are integers
         hotel_id = parseInt(hotel_id);
         room_type_id = parseInt(room_type_id);
 
@@ -122,12 +111,10 @@ exports.createRoom = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Missing required fields' });
         }
 
-        // Check if user is admin of this hotel
         if (req.user.role === 'admin' && req.user.hotel_id !== hotel_id) {
             return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
 
-        // Check for duplicate room number
         const [existing] = await db.query(
             'SELECT id FROM rooms WHERE hotel_id = ? AND room_number = ?',
             [hotel_id, room_number]
@@ -156,7 +143,6 @@ exports.bulkCreateRooms = async (req, res) => {
             return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
 
-        // Parse start_number for prefix and numeric part (e.g., A101 -> prefix='A', num=101)
         const match = start_number.toString().match(/^([A-Za-z]*)(\d+)$/);
         const prefix = match ? match[1] : '';
         const numPart = match ? match[2] : start_number.toString().replace(/^\D+/, '');
@@ -192,8 +178,8 @@ exports.bulkMultiCreateRooms = async (req, res) => {
             return res.status(403).json({ success: false, message: 'Unauthorized' });
         }
 
-        const roomDataMap = new Map(); // Use map to deduplicate locally while keeping floor/metadata
-        
+        const roomDataMap = new Map();
+
         batches.forEach(batch => {
             const { start_number, count, floor } = batch;
             if (!start_number || !count) return;
@@ -207,7 +193,6 @@ exports.bulkMultiCreateRooms = async (req, res) => {
             for (let i = 0; i < parseInt(count); i++) {
                 const currentNumStr = (sNum + i).toString().padStart(padding, '0');
                 const fullNum = prefix + currentNumStr;
-                // Last one wins if user mistakenly provides same room in different batches
                 roomDataMap.set(fullNum, {
                     room_number: fullNum,
                     floor: floor || '1'
@@ -220,7 +205,6 @@ exports.bulkMultiCreateRooms = async (req, res) => {
             return res.status(400).json({ success: false, message: 'No valid rooms to create' });
         }
 
-        // Pre-check duplicates in database
         const [existing] = await db.query(
             'SELECT room_number FROM rooms WHERE hotel_id = ? AND room_number IN (?)',
             [hotel_id, uniqueNumbers]
@@ -278,7 +262,6 @@ exports.bulkAddRoomsByNumbers = async (req, res) => {
                     const start = rangeParts[0];
                     const end = rangeParts[1];
 
-                    // Match: (Letters optional)(Digits required) - (Letters optional)(Digits required)
                     const startMatch = start.match(/^([A-Za-z]*)(\d+)$/);
                     const endMatch = end.match(/^([A-Za-z]*)(\d+)$/);
 
@@ -287,9 +270,8 @@ exports.bulkAddRoomsByNumbers = async (req, res) => {
                         const sNum = parseInt(startMatch[2]);
                         const eNum = parseInt(endMatch[2]);
 
-                        if (sNum <= eNum && (eNum - sNum) < 500) { // Limit huge ranges
+                        if (sNum <= eNum && (eNum - sNum) < 500) {
                             for (let i = sNum; i <= eNum; i++) {
-                                // Preserve padding (e.g. 001 -> 002)
                                 const numStr = i.toString().padStart(startMatch[2].length, '0');
                                 resolvedNumbers.push(prefix + numStr);
                             }
@@ -301,14 +283,12 @@ exports.bulkAddRoomsByNumbers = async (req, res) => {
             resolvedNumbers.push(part);
         }
 
-        // Deduplicate the list itself
         const uniqueNumbers = [...new Set(resolvedNumbers)];
 
         if (uniqueNumbers.length === 0) {
             return res.status(400).json({ success: false, message: 'No valid room numbers provided' });
         }
 
-        // Pre-check duplicates in database
         const [existing] = await db.query(
             'SELECT room_number FROM rooms WHERE hotel_id = ? AND room_number IN (?)',
             [hotel_id, uniqueNumbers]
@@ -321,7 +301,6 @@ exports.bulkAddRoomsByNumbers = async (req, res) => {
         }
 
         const values = finalNumbers.map(num => {
-            // Smart Floor Detection: e.g. 101 -> Floor 1, 1205 -> Floor 12, A301 -> Floor 3
             let detectedFloor = floor;
             const digitMatch = num.match(/\d+/);
             if (!detectedFloor && digitMatch) {
@@ -361,7 +340,6 @@ exports.getRooms = async (req, res) => {
     try {
         const { hotelId, checkIn, checkOut } = req.query;
 
-        // If admin, they can only see their own rooms
         const targetHotelId = req.user.role === 'admin' ? req.user.hotel_id : hotelId;
 
         if (!targetHotelId) {
@@ -387,7 +365,7 @@ exports.getRooms = async (req, res) => {
         if (req.user.role === 'guest' && checkIn && checkOut) {
             query += ` AND r.id NOT IN (
                 SELECT room_id FROM bookings 
-                WHERE status NOT IN ('cancelled') 
+                WHERE status NOT IN ('cancelled', 'no_show') 
                 AND (check_in_date < ? AND check_out_date > ?)
             )`;
             params.push(checkOut, checkIn);
@@ -395,7 +373,6 @@ exports.getRooms = async (req, res) => {
 
         const [rooms] = await db.query(query, params);
 
-        // Parse amenities for each room's type
         rooms.forEach(r => {
             try {
                 r.amenities = r.amenities ? (typeof r.amenities === 'string' ? JSON.parse(r.amenities) : r.amenities) : [];
@@ -415,7 +392,6 @@ exports.updateRoom = async (req, res) => {
         const { id } = req.params;
         const { room_type_id, room_number, floor, status, notes } = req.body;
 
-        // Get current room to check hotel_id
         const [room] = await db.query('SELECT hotel_id FROM rooms WHERE id = ?', [id]);
         if (room.length === 0) return res.status(404).json({ success: false, message: 'Room not found' });
 
@@ -452,8 +428,6 @@ exports.deleteRoom = async (req, res) => {
     }
 };
 
-// --- Public Search ---
-
 exports.searchRooms = async (req, res) => {
     try {
         const { location, guests, checkIn, checkOut } = req.query;
@@ -479,11 +453,10 @@ exports.searchRooms = async (req, res) => {
             params.push(parseInt(guests));
         }
 
-        // Availability check (Simplified: check if room is not booked in that range)
         if (checkIn && checkOut) {
             query += ` AND r.id NOT IN (
         SELECT room_id FROM bookings 
-        WHERE status NOT IN ('cancelled') 
+        WHERE status NOT IN ('cancelled', 'no_show') 
         AND (
           (check_in_date <= ? AND check_out_date >= ?) OR
           (check_in_date < ? AND check_in_date >= ?) OR
@@ -497,7 +470,6 @@ exports.searchRooms = async (req, res) => {
 
         const [rooms] = await db.query(query, params);
 
-        // Parse data
         rooms.forEach(r => {
             try {
                 r.amenities = r.amenities ? (typeof r.amenities === 'string' ? JSON.parse(r.amenities) : r.amenities) : [];

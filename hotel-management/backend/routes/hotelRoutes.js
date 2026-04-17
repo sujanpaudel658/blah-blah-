@@ -2,10 +2,9 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { getAllHotels, updateHotel } = require('../controllers/superAdminController');
-const { requestHotel } = require('../controllers/hotelController');
+const { requestHotel, getPublicHotels } = require('../controllers/hotelController');
 const { protect } = require('../middleware/auth');
 
-// Public: Get counts for landing page stats
 router.get('/public/stats', async (req, res) => {
   try {
     const [[hotels]] = await db.query('SELECT COUNT(*) as count FROM hotels');
@@ -25,13 +24,10 @@ router.get('/public/stats', async (req, res) => {
   }
 });
 
-// Protected: Request to list new hotel (User)
 router.post('/request', protect, requestHotel);
 
-// Public: Get all hotels
-router.get('/', getAllHotels);
+router.get('/', getPublicHotels);
 
-// Public: Get single hotel
 router.get('/:id', async (req, res) => {
   try {
     const [hotels] = await db.query('SELECT * FROM hotels WHERE id = ?', [req.params.id]);
@@ -45,10 +41,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Protected: Update hotel (admin only)
 router.put('/:id', protect, updateHotel);
 
-// Protected: Upload images (base64)
 router.post('/upload', protect, (req, res) => {
   const { images } = req.body;
   if (!images || !Array.isArray(images) || images.length === 0) {

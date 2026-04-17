@@ -1,17 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { API_URL } from '../config/api';
 import AdminLayout from '../components/admin/AdminLayout';
 import BookingTable from '../components/admin/BookingTable';
 import QRScanner from '../components/admin/QRScanner';
 
-/**
- * Bookings Component
- * 
- * Purpose: Dedicated ledger for all hotel reservations.
- * Allows administrators to manage, filter, and verify bookings via QR.
- */
+// Admin: hotel bookings + QR verify.
 const Bookings = () => {
     const navigate = useNavigate();
     const [user, setUser] = useState(null);
@@ -20,12 +14,6 @@ const Bookings = () => {
     const [scannedBooking, setScannedBooking] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    /* =========================
-       1. DATA SYNCHRONIZATION
-       -------------------------
-       v2.0: Separated from main dashboard to improve render performance 
-       on hotels with >500 active records.
-       ========================= */
     useEffect(() => {
         const init = async () => {
             const token = localStorage.getItem('token');
@@ -40,8 +28,7 @@ const Bookings = () => {
             setUser(parsedUser);
 
             try {
-                // Fetch hotel-specific registry
-                const res = await axios.get(`${API_URL}/payments/hotel/${parsedUser.hotel_id}`, {
+                const res = await axios.get(`http://localhost:5000/api/payments/hotel/${parsedUser.hotel_id}`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 if (res.data.success) {
@@ -57,50 +44,23 @@ const Bookings = () => {
         init();
     }, [navigate]);
 
-    /* =========================
-       2. QR VERIFICATION LOGIC
-       ========================= */
-    const handleScanSuccess = async (decodedText) => {
+    /* 2. QR VERIFICATION LOGIC */
+    const handleScanSuccess = async (data) => {
         try {
             const token = localStorage.getItem('token');
-            const res = await axios.post(`${API_URL}/payments/scan-checkin`, 
-              { qrToken: decodedText },
-              { headers: { Authorization: `Bearer ${token}` } }
-            );
+            const res = await axios.get(`http://localhost:5000/api/payments/reference/${data}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
 
             if (res.data.success) {
-                setScannedBooking({
-                    guest_name: res.data.guest.name,
-                    booking_reference: res.data.booking.reference,
-                    room_number: res.data.room.number,
-                    check_in_date: new Date().toISOString(),
-                    payment_status: 'PAID'
-                });
-                alert(res.data.message);
-                
-                // Refresh local bookings state to reflect the check-in
-                try {
-                    const parsedUser = JSON.parse(localStorage.getItem('user'));
-                    const refreshRes = await axios.get(`${API_URL}/payments/hotel/${parsedUser.hotel_id}`, {
-                        headers: { Authorization: `Bearer ${token}` }
-                    });
-                    if (refreshRes.data.success) {
-                        setHotelBookings(refreshRes.data.bookings || []);
-                    }
-                } catch(e) {}
+                setScannedBooking(res.data.booking);
             }
         } catch (err) {
-            const errorMessage = err.response?.data?.message || 'Could not validate QR code.';
-            alert(`Scan Failed: ${errorMessage}`);
-            setShowScanner(false);
+            console.error('Scan verification error:', err);
+            alert('Invalid or missing reservation record. Please verify reference format.');
         }
     };
 
-    /* =========================
-       3. STATUS TRANSITIONS
-       -------------------------
-       Centralized handler for all state mutations (Confirm, Deny, Check-in/out).
-       ========================= */
     const handleUpdateStatus = async (bookingId, newStatus) => {
         try {
             const token = localStorage.getItem('token');
@@ -127,13 +87,12 @@ const Bookings = () => {
                     return;
             }
 
-            const res = await axios.post(`${API_URL}/payments${endpoint}`,
+            const res = await axios.post(`http://localhost:5000/api/payments${endpoint}`,
                 { bookingId },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
 
             if (res.data.success) {
-                // Local state reconciliation: update main table and active scanner modal
                 setHotelBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: newStatus } : b));
                 if (scannedBooking?.id === bookingId) {
                     setScannedBooking(prev => ({ ...prev, status: newStatus }));

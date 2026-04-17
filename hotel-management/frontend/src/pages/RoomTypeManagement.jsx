@@ -297,14 +297,14 @@ const RoomTypeManagement = () => {
                                 <div className="flex gap-1">
                                     <button
                                         onClick={() => handleEdit(type)}
-                                        className="w-8 h-8 flex items-center justify-center text-[#A0AEC0] hover:text-[#B88E2F] hover:bg-[#B88E2F]/5 rounded-full transition-all"
+                                        className="w-8 h-8 flex items-center justify-center text-[#64748B] hover:text-[#607AFB] hover:bg-[#607AFB]/10 rounded-full transition-all"
                                         title="Edit Category"
                                     >
                                         <span className="material-symbols-outlined text-sm">edit</span>
                                     </button>
                                     <button
                                         onClick={() => handleDelete(type.id)}
-                                        className="w-8 h-8 flex items-center justify-center text-[#A0AEC0] hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
+                                        className="w-8 h-8 flex items-center justify-center text-[#8a7d72] hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
                                         title="Delete Category"
                                     >
                                         <span className="material-symbols-outlined text-sm">delete</span>
@@ -317,19 +317,19 @@ const RoomTypeManagement = () => {
                             </p>
 
                             <div className="grid grid-cols-2 gap-px bg-[#E2E2E2] border border-[#E2E2E2] mb-6">
-                                <div className="bg-[#F9FAFB] p-3 text-center">
-                                    <span className="text-[10px] font-bold text-[#94A3B8] uppercase block mb-1">Base Price</span>
-                                    <span className="font-bold text-[#B88E2F]">Rs. {type.base_price}</span>
+                                <div className="bg-[#F8FAFC] p-3 text-center">
+                                    <span className="text-[10px] font-bold text-[#64748B] uppercase block mb-1">Base Price</span>
+                                    <span className="font-bold text-[#607AFB]">Rs. {type.base_price}</span>
                                 </div>
-                                <div className="bg-[#F9FAFB] p-3 text-center">
-                                    <span className="text-[10px] font-bold text-[#94A3B8] uppercase block mb-1">Capacity</span>
+                                <div className="bg-[#F8FAFC] p-3 text-center">
+                                    <span className="text-[10px] font-bold text-[#64748B] uppercase block mb-1">Capacity</span>
                                     <span className="font-bold text-[#1B2B41]">{type.max_occupancy} Pers</span>
                                 </div>
                             </div>
 
                             <div className="flex items-center gap-2 mb-6">
                                 <span className="admin-label mb-0">Units:</span>
-                                <span className="text-xs font-bold text-[#1B2B41] bg-[#F1F5F9] px-2 py-0.5 rounded-[2px]">
+                                <span className="rounded-[2px] bg-[#EEF2FF] px-2 py-0.5 text-xs font-bold text-[#1B2B41]">
                                     {type.room_count || 0} Registered
                                 </span>
                             </div>
@@ -349,20 +349,26 @@ const RoomTypeManagement = () => {
                 </div>
             </div>
 
-            {/* Create Category Modal */}
             {showModal && (
-                <div className="fixed inset-0 z-[100] bg-[#111B2B]/80 flex items-center justify-center p-4">
-                    <div className="bg-white w-full max-w-xl rounded-sm overflow-hidden shadow-xl border border-[#E2E2E2] fade-in">
-                        <div className="bg-[#1B2B41] px-6 py-4 flex items-center justify-between text-white border-b border-white/10">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#1a1614]/75 p-4 backdrop-blur-[2px]">
+                    <div className="w-full max-w-xl overflow-hidden rounded-xl border border-[#DBE4FF] bg-white shadow-2xl fade-in">
+                        <div className="flex items-center justify-between border-b-2 border-[#607AFB]/25 bg-gradient-to-r from-[#F8FAFF] via-[#FFFFFF] to-[#EEF2FF] px-6 py-5">
                             <div>
-                                <h3 className="text-base font-bold uppercase tracking-widest">{isEditing ? 'Edit Category' : 'New Room Category'}</h3>
-                                <p className="text-[10px] text-[#A0AEC0] mt-0.5 font-bold uppercase tracking-widest">{isEditing ? `ID: ${editingId}` : 'Set up your room type details'}</p>
+                                <h3 className="text-base font-bold uppercase tracking-[0.12em] text-[#1B2B41]">
+                                    {isEditing ? 'Edit Category' : 'New Room Category'}
+                                </h3>
+                                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#64748B]">
+                                    {isEditing ? `ID: ${editingId}` : 'Set up your room type details'}
+                                </p>
                             </div>
-                            <button onClick={resetForm} className="w-8 h-8 flex items-center justify-center hover:bg-white/10 transition-colors">
+                            <button
+                                onClick={resetForm}
+                                className="flex h-9 w-9 items-center justify-center rounded-full text-[#64748B] transition-colors hover:bg-[#607AFB]/15 hover:text-[#607AFB]"
+                            >
                                 <span className="material-symbols-outlined text-sm">close</span>
                             </button>
                         </div>
-                        <form onSubmit={handleSubmit} className="p-8 space-y-6">
+                        <form onSubmit={handleSubmit} className="space-y-6 p-8">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="form-group">
                                     <label className="admin-label">Category Name</label>
@@ -396,7 +402,7 @@ const RoomTypeManagement = () => {
                                     name="base_price"
                                     value={formData.base_price}
                                     onChange={handleInputChange}
-                                    className="admin-input font-bold text-[#B88E2F]"
+                                    className="admin-input font-bold text-[#607AFB]"
                                 />
                             </div>
 
@@ -418,9 +424,9 @@ const RoomTypeManagement = () => {
                                             key={amenity}
                                             type="button"
                                             onClick={() => handleAmenityChange(amenity)}
-                                            className={`flex items-center gap-2 p-2 border rounded-sm transition-colors text-[10px] font-bold uppercase tracking-wider ${formData.amenities[amenity]
-                                                ? 'bg-[#1B2B41] text-white border-[#1B2B41]'
-                                                : 'bg-white text-[#94A3B8] border-[#E2E2E2] hover:border-[#1B2B41]'
+                                            className={`flex items-center gap-2 rounded-md border p-2 text-[10px] font-bold uppercase tracking-wider transition-colors ${formData.amenities[amenity]
+                                                ? 'border-[#607AFB] bg-[#607AFB] text-white shadow-sm'
+                                                : 'border-[#E2E8F0] bg-white text-[#64748B] hover:border-[#607AFB]/60'
                                                 }`}
                                         >
                                             <span className="material-symbols-outlined text-[14px]">
@@ -445,40 +451,44 @@ const RoomTypeManagement = () => {
                 </div>
             )}
 
-            {/* Allocate Rooms Modal */}
             {showRoomsModal && selectedType && (
-                <div className="fixed inset-0 z-[100] bg-[#111B2B]/80 flex items-center justify-center p-4">
-                    <div className="bg-white w-full max-w-lg rounded-sm overflow-hidden shadow-xl border border-[#E2E2E2] fade-in">
-                        <div className="bg-[#1B2B41] px-6 py-4 flex items-center justify-between text-white">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#1a1614]/75 p-4 backdrop-blur-[2px]">
+                    <div className="w-full max-w-lg overflow-hidden rounded-xl border border-[#DBE4FF] bg-white shadow-2xl fade-in">
+                        <div className="flex items-center justify-between border-b-2 border-[#607AFB]/25 bg-gradient-to-r from-[#F8FAFF] via-[#FFFFFF] to-[#EEF2FF] px-6 py-5">
                             <div>
-                                <h3 className="text-base font-bold uppercase tracking-widest">Assign Rooms</h3>
-                                <p className="text-[10px] text-[#A0AEC0] mt-0.5 font-bold uppercase tracking-widest">Setup for: {selectedType.name}</p>
+                                <h3 className="text-base font-bold uppercase tracking-[0.12em] text-[#1B2B41]">Assign Rooms</h3>
+                                <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#64748B]">
+                                    Setup for: {selectedType.name}
+                                </p>
                             </div>
-                            <button onClick={() => setShowRoomsModal(false)} className="w-8 h-8 flex items-center justify-center hover:bg-white/10 transition-colors">
+                            <button
+                                onClick={() => setShowRoomsModal(false)}
+                                className="flex h-9 w-9 items-center justify-center rounded-full text-[#64748B] transition-colors hover:bg-[#607AFB]/15 hover:text-[#607AFB]"
+                            >
                                 <span className="material-symbols-outlined text-sm">close</span>
                             </button>
                         </div>
 
-                        <form onSubmit={handleAddRooms} className="p-8 space-y-6">
-                            <div className="flex bg-[#F1F5F9] border border-[#E2E2E2] p-1 rounded-sm">
+                        <form onSubmit={handleAddRooms} className="space-y-6 p-8">
+                            <div className="flex rounded-md border border-[#DBE4FF] bg-[#EEF2FF] p-1">
                                 <button
                                     type="button"
                                     onClick={() => setAddMethod('list')}
-                                    className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${addMethod === 'list' ? 'bg-white shadow-sm text-[#1B2B41]' : 'text-[#94A3B8]'}`}
+                                    className={`flex-1 rounded py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${addMethod === 'list' ? 'bg-white text-[#1B2B41] shadow-sm' : 'text-[#64748B]'}`}
                                 >
                                     List
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setAddMethod('quick')}
-                                    className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${addMethod === 'quick' ? 'bg-white shadow-sm text-[#1B2B41]' : 'text-[#94A3B8]'}`}
+                                    className={`flex-1 rounded py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${addMethod === 'quick' ? 'bg-white text-[#1B2B41] shadow-sm' : 'text-[#64748B]'}`}
                                 >
                                     Single Batch
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setAddMethod('multi')}
-                                    className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${addMethod === 'multi' ? 'bg-white shadow-sm text-[#1B2B41]' : 'text-[#94A3B8]'}`}
+                                    className={`flex-1 rounded py-1.5 text-[9px] font-black uppercase tracking-widest transition-colors ${addMethod === 'multi' ? 'bg-white text-[#1B2B41] shadow-sm' : 'text-[#64748B]'}`}
                                 >
                                     Floor-wise
                                 </button>
@@ -494,7 +504,7 @@ const RoomTypeManagement = () => {
                                         className="admin-input h-32 font-bold text-[#1B2B41]"
                                         placeholder="e.g. 101-110, 201, 205"
                                     />
-                                    <p className="text-[9px] text-[#94A3B8] font-medium italic mt-2">
+                                    <p className="mt-2 text-[9px] font-medium italic text-[#64748B]">
                                         Use dash (-) for sequential ranges. Separate distinct units with commas.
                                     </p>
                                 </div>
@@ -537,8 +547,10 @@ const RoomTypeManagement = () => {
                                             placeholder="Numerical only"
                                         />
                                     </div>
-                                    <div className="p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-sm">
-                                        <span className="text-[9px] font-bold text-[#64748B] uppercase tracking-widest block mb-1">Sequence Preview</span>
+                                    <div className="rounded-md border border-[#DBE4FF] bg-[#F8FAFF] p-3">
+                                        <span className="mb-1 block text-[9px] font-bold uppercase tracking-widest text-[#64748B]">
+                                            Sequence Preview
+                                        </span>
                                         <p className="text-[10px] font-bold text-[#1B2B41] break-all">{getBulkPreview()}</p>
                                     </div>
                                 </div>
@@ -550,7 +562,7 @@ const RoomTypeManagement = () => {
                                         {floorBatches.map((batch, idx) => (
                                             <div key={idx} className="grid grid-cols-12 gap-2 items-end">
                                                 <div className="col-span-3">
-                                                    <label className="text-[8px] font-bold uppercase text-[#94A3B8] mb-1 block">Floor</label>
+                                                    <label className="mb-1 block text-[8px] font-bold uppercase text-[#64748B]">Floor</label>
                                                     <input type="number" value={batch.floor} onChange={(e) => {
                                                         const newBatches = [...floorBatches];
                                                         newBatches[idx].floor = e.target.value;
@@ -558,7 +570,7 @@ const RoomTypeManagement = () => {
                                                     }} className="admin-input !h-9 !py-0 !text-xs" />
                                                 </div>
                                                 <div className="col-span-4">
-                                                    <label className="text-[8px] font-bold uppercase text-[#94A3B8] mb-1 block">Start #</label>
+                                                    <label className="mb-1 block text-[8px] font-bold uppercase text-[#64748B]">Start #</label>
                                                     <input type="text" value={batch.start} onChange={(e) => {
                                                         const newBatches = [...floorBatches];
                                                         newBatches[idx].start = e.target.value;
@@ -566,7 +578,7 @@ const RoomTypeManagement = () => {
                                                     }} className="admin-input !h-9 !py-0 !text-xs font-bold" />
                                                 </div>
                                                 <div className="col-span-3">
-                                                    <label className="text-[8px] font-bold uppercase text-[#94A3B8] mb-1 block">Count</label>
+                                                    <label className="mb-1 block text-[8px] font-bold uppercase text-[#64748B]">Count</label>
                                                     <input type="number" value={batch.count} onChange={(e) => {
                                                         const newBatches = [...floorBatches];
                                                         newBatches[idx].count = e.target.value;
@@ -584,7 +596,7 @@ const RoomTypeManagement = () => {
                                     <button
                                         type="button"
                                         onClick={() => setFloorBatches([...floorBatches, { floor: (parseInt(floorBatches[floorBatches.length - 1]?.floor) + 1).toString() || '1', start: '101', count: '5' }])}
-                                        className="w-full py-2 border-2 border-dashed border-[#E2E2E2] text-[9px] font-bold text-[#64748B] uppercase tracking-widest hover:border-[#1B2B41] hover:text-[#1B2B41] transition-all"
+                                        className="w-full border-2 border-dashed border-[#DBE4FF] py-2 text-[9px] font-bold uppercase tracking-widest text-[#64748B] transition-all hover:border-[#607AFB]/70 hover:text-[#607AFB]"
                                     >
                                         + Add Floor Row
                                     </button>
