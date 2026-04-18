@@ -1,29 +1,15 @@
 const db = require('../config/db');
 
-/**
- * LOYALTY PROGRAM CONTROLLER
- * --------------------------
- * Rule: If a guest completes 5 stays (confirmed/checked_in/checked_out)
- * at the SAME hotel within a single calendar year, their next booking
- * at that hotel earns 1 free night (deducted from the total).
- *
- * The loyalty cycle resets after the reward is redeemed, and the count
- * starts fresh toward the next reward.
- */
+// 5 stays / hotel / calendar year → one redeemable free night.
 
-const LOYALTY_THRESHOLD = 5; // Stays needed to earn a free night
+const LOYALTY_THRESHOLD = 5;
 
-/**
- * GET /api/loyalty/status/:hotelId
- * Returns the user's loyalty progress at a specific hotel for the current year.
- */
 const getLoyaltyStatus = async (req, res) => {
     try {
         const userId = req.user.id;
         const { hotelId } = req.params;
         const currentYear = new Date().getFullYear();
 
-        // Count completed bookings at this hotel in the current year
         const [rows] = await db.query(
             `SELECT COUNT(*) as completed_stays 
              FROM bookings 
@@ -35,7 +21,6 @@ const getLoyaltyStatus = async (req, res) => {
             [userId, hotelId, currentYear]
         );
 
-        // Count how many free nights the user has already redeemed this year
         const [redeemed] = await db.query(
             `SELECT COUNT(*) as redeemed_count 
              FROM bookings 
@@ -47,11 +32,9 @@ const getLoyaltyStatus = async (req, res) => {
         );
 
         const completedStays = rows[0].completed_stays || 0;
-        // Calculate progress within the current cycle (mod to handle multiple rewards)
         const progressInCycle = completedStays % LOYALTY_THRESHOLD;
         const isEligible = completedStays >= LOYALTY_THRESHOLD && progressInCycle === 0 && completedStays > 0;
 
-        // Also check if the user hasn't already used a reward for this cycle
         const totalCyclesCompleted = Math.floor(completedStays / LOYALTY_THRESHOLD);
         const redeemedCount = redeemed[0].redeemed_count || 0;
         const hasUnusedReward = totalCyclesCompleted > redeemedCount;
@@ -80,10 +63,6 @@ const getLoyaltyStatus = async (req, res) => {
     }
 };
 
-/**
- * GET /api/loyalty/overview
- * Returns loyalty status across ALL hotels for the authenticated user.
- */
 const getLoyaltyOverview = async (req, res) => {
     try {
         const userId = req.user.id;

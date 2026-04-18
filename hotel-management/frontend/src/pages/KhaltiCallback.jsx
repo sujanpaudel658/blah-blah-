@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config/api';
@@ -8,17 +8,28 @@ const KhaltiCallback = () => {
     const navigate = useNavigate();
     const [status, setStatus] = useState('verifying'); // verifying, success, error
     const [message, setMessage] = useState('Verifying your payment...');
+    const verifyStarted = useRef(false);
 
     useEffect(() => {
         const verifyPayment = async () => {
             const queryParams = new URLSearchParams(location.search);
-            const pidx = queryParams.get('pidx');
-            const transaction_id = queryParams.get('transaction_id');
+            const pidx = queryParams.get('pidx')?.trim();
             const status_from_url = queryParams.get('status');
+            const purchase_order_id = queryParams.get('purchase_order_id')?.trim() || undefined;
 
             if (!pidx) {
                 setStatus('error');
                 setMessage('Invalid payment session.');
+                return;
+            }
+
+            const okKey = `khalti_verify_ok_${pidx}`;
+            if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(okKey)) {
+                setStatus('success');
+                setMessage('Payment verified successfully.');
+                setTimeout(() => {
+                    navigate('/guest/dashboard', { state: { activeTab: 'bookings' } });
+                }, 2000);
                 return;
             }
 
@@ -28,10 +39,21 @@ const KhaltiCallback = () => {
                 return;
             }
 
+            if (verifyStarted.current) return;
+            verifyStarted.current = true;
+
             try {
-                const response = await axios.post(`${API_URL}/payments/verify`, { pidx });
+                const response = await axios.post(`${API_URL}/payments/verify`, {
+                    pidx,
+                    purchase_order_id
+                });
 
                 if (response.data.success) {
+                    try {
+                        sessionStorage.setItem(okKey, '1');
+                    } catch (_) {
+                        /* ignore */
+                    }
                     setStatus('success');
                     setMessage(response.data.message || 'Payment successful! Your booking has been confirmed.');
                     // Redirect to dashboard after 3 seconds
@@ -39,10 +61,12 @@ const KhaltiCallback = () => {
                         navigate('/guest/dashboard', { state: { activeTab: 'bookings' } });
                     }, 3000);
                 } else {
+                    verifyStarted.current = false;
                     setStatus('error');
                     setMessage(response.data.message || 'Payment verification failed.');
                 }
             } catch (error) {
+                verifyStarted.current = false;
                 console.error('Verification error details:', error.response?.data || error.message);
                 setStatus('error');
                 const serverError = error.response?.data?.message || error.response?.data?.error || error.message;

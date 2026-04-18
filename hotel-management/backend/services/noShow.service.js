@@ -3,10 +3,133 @@ const notificationService = require('./notification.service');
 const { setBookingStatus, setRoomStatus } = require('./statusTimeline.service');
 const { NOTIFICATION_TYPES, NOTIFICATION_PRIORITIES } = require('../constants/notification.constants');
 
-/**
- * Shared: mark booking no-show, penalties, ban, free room.
- * Expects `booking` from a join with users (no_show_count on booking row).
- */
+const UNPAID_NO_SHOW_REASON =
+    'Auto-cancel: unpaid booking with no check-in within 1 hour after standard check-in time.';
+
+// Hotel check-in time → HH:MM:SS for SQL.
+function normalizeCheckInTime(raw) {
+    const t = String(raw || '14:00:00').trim();
+    if (/^\d{1,2}:\d{2}:\d{2}$/.test(t)) {
+        const [h, m, s] = t.split(':').map((x) => parseInt(x, 10));
+        if (h >= 0 && h <= 23 && m >= 0 && m <= 59 && s >= 0 && s <= 59) {
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+    }
+    if (/^\d{1,2}:\d{2}$/.test(t)) {
+        const [h, m] = t.split(':').map((x) => parseInt(x, 10));
+        if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+        }
+    }
+    return '14:00:00';
+}
+
+function applyNoShowBanIfNeeded(userId, newCount, logPrefix) {
+    let newStatus = 'active';
+    let banUntil = null;
+
+    if (newCount >= 5) {
+        newStatus = 'perm_banned';
+    } else if (newCount >= 3) {
+        newStatus = 'temp_banned';
+        const date = new Date();
+        date.setMonth(date.getMonth() + 3);
+        banUntil = date;
+    }
+
+    if (newStatus !== 'active') {
+        return db
+            .query('UPDATE users SET account_status = ?, ban_until = ? WHERE id = ?', [
+                newStatus,
+                banUntil,
+                userId
+            ])
+            .then(() => {
+                console.log(`${logPrefix} User ${userId} account_status → ${newStatus}`);
+            });
+    }
+    return Promise.resolve();
+}
+
+// Pay-at-hotel still unpaid + no check-in → cancel after grace window.
+async function finalizePayAtHotelNoShow(booking, logPrefix = '[NoShowService]') {
+    const now = new Date();
+    const statusResult = await setBookingStatus(db, {
+        bookingId: booking.id,
+        toStatus: 'cancelled',
+        reason: UNPAID_NO_SHOW_REASON,
+        extraFields: {
+            cancelled_at: now
+        }
+    });
+    if (!statusResult || !statusResult.changed) return;
+
+    console.log(`${logPrefix} Unpaid no-show auto-cancel: ${booking.booking_reference} (booking ${booking.id})`);
+
+    const newCount = (booking.no_show_count || 0) + 1;
+    await db.query('UPDATE users SET no_show_count = ? WHERE id = ?', [newCount, booking.user_id]);
+
+    await applyNoShowBanIfNeeded(booking.user_id, newCount, logPrefix);
+
+    if (booking.room_id) {
+        await setRoomStatus(db, {
+            roomId: booking.room_id,
+            toStatus: 'available',
+            source: 'no_show_service',
+            referenceType: 'booking',
+            referenceId: booking.id,
+            notes: 'Released: pay-at-hotel no-show (1h after check-in time)'
+        });
+    }
+
+    try {
+        await notificationService.saveNotification({
+            userId: booking.user_id,
+            role: 'user',
+            title: 'Booking auto-cancelled',
+            message: `Booking ${booking.booking_reference} was auto-cancelled because check-in did not happen within the allowed unpaid window.`,
+            type: NOTIFICATION_TYPES.BOOKING,
+            referenceId: booking.id,
+            priority: NOTIFICATION_PRIORITIES.MEDIUM
+        });
+    } catch (e) {
+        console.error('[NoShowService] Notification error:', e.message);
+    }
+}
+
+// Cron: unpaid + past check-in date/time + 1h → auto-cancel.
+async function processPayAtHotelNoShowAfterDeadline() {
+    try {
+        if (String(process.env.DISABLE_PAY_AT_HOTEL_NO_SHOW || '').toLowerCase() === 'true') {
+            return;
+        }
+
+        const checkInTime = normalizeCheckInTime(process.env.DEFAULT_CHECK_IN_TIME);
+
+        const [candidates] = await db.query(
+            `
+            SELECT b.*, u.no_show_count
+            FROM bookings b
+            INNER JOIN users u ON b.user_id = u.id
+            WHERE b.status IN ('confirmed', 'pending')
+              AND b.payment_status = 'pending'
+              AND b.checked_in_at IS NULL
+              AND NOW() >= DATE_ADD(TIMESTAMP(b.check_in_date, ?), INTERVAL 1 HOUR)
+            `,
+            [checkInTime]
+        );
+
+        if (candidates.length === 0) return;
+
+        for (const booking of candidates) {
+            await finalizePayAtHotelNoShow(booking);
+        }
+    } catch (error) {
+        console.error('[NoShowService] Pay-at-hotel no-show error:', error.message);
+    }
+}
+
+// confirmed no-show: status, optional refund row, ban tier, release room.
 async function finalizeNoShowBooking(booking, logPrefix = '[NoShowService]') {
     const statusResult = await setBookingStatus(db, {
         bookingId: booking.id,
@@ -35,26 +158,7 @@ async function finalizeNoShowBooking(booking, logPrefix = '[NoShowService]') {
         }
     }
 
-    let newStatus = 'active';
-    let banUntil = null;
-
-    if (newCount >= 5) {
-        newStatus = 'perm_banned';
-    } else if (newCount >= 3) {
-        newStatus = 'temp_banned';
-        const date = new Date();
-        date.setMonth(date.getMonth() + 3);
-        banUntil = date;
-    }
-
-    if (newStatus !== 'active') {
-        await db.query('UPDATE users SET account_status = ?, ban_until = ? WHERE id = ?', [
-            newStatus,
-            banUntil,
-            booking.user_id
-        ]);
-        console.log(`${logPrefix} User ${booking.user_id} status updated to ${newStatus}`);
-    }
+    await applyNoShowBanIfNeeded(booking.user_id, newCount, logPrefix);
 
     if (booking.room_id) {
         await setRoomStatus(db, {
@@ -82,10 +186,7 @@ async function finalizeNoShowBooking(booking, logPrefix = '[NoShowService]') {
     }
 }
 
-/**
- * Same-day after 12:00 (DB session time): only still-unconfirmed bookings release the room.
- * Confirmed stays are kept for prepaid (payment_status paid) and pay-at-hotel (confirmed + pending payment).
- */
+// Same day after 12:00: drop `pending` bookings that never confirmed; free room.
 async function processNoonCheckInRelease() {
     try {
         if (String(process.env.DISABLE_NOON_NO_SHOW || '').toLowerCase() === 'true') return;
@@ -111,7 +212,6 @@ async function processNoonCheckInRelease() {
                 toStatus: 'cancelled',
                 reason: 'Auto: Unconfirmed booking — no check-in by 12:00 on check-in date.',
                 extraFields: {
-                    cancellation_reason: 'Auto: Unconfirmed booking — no check-in by 12:00 on check-in date.',
                     cancelled_at: new Date()
                 }
             });
@@ -152,9 +252,7 @@ async function processNoShows() {
     }
 }
 
-/**
- * Middleware to check if a user is currently banned.
- */
+// Block banned / temp-banned guests (no-show policy).
 async function checkBanStatus(req, res, next) {
     try {
         const userId = req.user.id;
@@ -193,5 +291,6 @@ async function checkBanStatus(req, res, next) {
 module.exports = {
     processNoShows,
     processNoonCheckInRelease,
+    processPayAtHotelNoShowAfterDeadline,
     checkBanStatus
 };

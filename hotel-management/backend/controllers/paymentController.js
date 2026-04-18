@@ -8,24 +8,56 @@ const { setBookingStatus, setRoomStatus } = require('../services/statusTimeline.
 const { NOTIFICATION_TYPES, NOTIFICATION_PRIORITIES } = require('../constants/notification.constants');
 const notificationEvents = require('../services/notificationEvents.service');
 
-// Khalti Config
-const KHALTI_SECRET_KEY = process.env.KHALTI_SECRET_KEY || '';
+function normalizeKhaltiKey(raw) {
+    if (raw == null) return '';
+    let s = String(raw).trim();
+    if (s.charCodeAt(0) === 0xfeff) s = s.slice(1).trim();
+    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+        s = s.slice(1, -1).trim();
+    }
+    return s;
+}
+const KHALTI_SECRET_KEY = normalizeKhaltiKey(process.env.KHALTI_SECRET_KEY || '');
 
-// Detect if it's a Live or Test key
 const IS_LIVE = KHALTI_SECRET_KEY.toLowerCase().includes('live');
 
-// Strict Auth Header Format: "Key <YOUR_SECRET_KEY>"
-// If the key in .env already has "Key " or "Live ", we normalize it to "Key "
 const RAW_KEY = KHALTI_SECRET_KEY.replace(/^(Key|Live)\s+/i, '');
 const KHALTI_AUTH_HEADER = `Key ${RAW_KEY}`;
 
-const KHALTI_A_BASE = 'https://a.khalti.com'; // Standard V2 base for initiate/lookup
+const KHALTI_A_BASE = 'https://a.khalti.com';
 const KHALTI_BASE = IS_LIVE ? 'https://khalti.com' : 'https://dev.khalti.com';
 
 const KHALTI_INITIATE_URL = `${KHALTI_A_BASE}/api/v2/epayment/initiate/`;
 const KHALTI_LOOKUP_URL = `${KHALTI_A_BASE}/api/v2/epayment/lookup/`;
+const KHALTI_LOOKUP_FALLBACK_URL = `${KHALTI_BASE}/api/v2/epayment/lookup/`;
 
-/** Same as new bookings: platform fee on gross extension amount */
+async function lookupKhaltiPaymentStatus(pidx) {
+    const urlsToTry = [KHALTI_LOOKUP_URL, KHALTI_LOOKUP_FALLBACK_URL];
+    const headersToTry = [
+        { 'Authorization': KHALTI_AUTH_HEADER, 'Content-Type': 'application/json' }
+    ];
+    if (KHALTI_SECRET_KEY && KHALTI_SECRET_KEY !== RAW_KEY) {
+        headersToTry.push({ 'Authorization': KHALTI_SECRET_KEY, 'Content-Type': 'application/json' });
+    }
+
+    let lastError = null;
+    for (const url of urlsToTry) {
+        for (const headers of headersToTry) {
+            try {
+                const response = await axios.post(url, { pidx }, { headers, timeout: 15000 });
+                return response.data;
+            } catch (e) {
+                lastError = e;
+                const code = e.response?.status;
+                if (code === 401 || code === 403) continue;
+                if (code === 404 || code === 429 || code >= 500) continue;
+                throw e;
+            }
+        }
+    }
+    throw lastError || new Error('Khalti lookup failed');
+}
+
 const PLATFORM_FEE_RATE = 0.1;
 
 async function notifyUserBooking(userId, bookingId, title, message, priority = NOTIFICATION_PRIORITIES.MEDIUM) {
@@ -66,8 +98,6 @@ async function notifyHotelAdminsBooking(hotelId, bookingId, title, message, prio
     }
 }
 
-// --- REUSABLE HELPERS ---
-
 const initializeKhaltiPayment = async (details) => {
     const response = await axios.post(KHALTI_INITIATE_URL, details, {
         headers: {
@@ -78,9 +108,6 @@ const initializeKhaltiPayment = async (details) => {
     return response.data;
 };
 
-/**
- * Common logic to process a refund through Khalti Merchant Transaction API
- */
 const processKhaltiRefund = async (payment, remarks = 'Refund initiated') => {
     if (!payment.transaction_id) {
         throw new Error('Transaction ID missing. Payment must be verified before refund.');
@@ -100,9 +127,6 @@ const processKhaltiRefund = async (payment, remarks = 'Refund initiated') => {
     return refundResponse.data;
 };
 
-/**
- * Verifies a pending payment and updates it to completed if successful
- */
 const verifyAndUpgradePayment = async (paymentId, pidx) => {
     try {
         const vRes = await axios.post(KHALTI_LOOKUP_URL, { pidx }, {
@@ -161,7 +185,6 @@ const initiatePayment = async (req, res) => {
             });
         }
         const booker = bookerRows[0];
-        // Never trust client email for notifications — only the logged-in account receives booking mail.
         const ci = {
             name:
                 (customer_info && String(customer_info.name || '').trim()) ||
@@ -174,14 +197,6 @@ const initiatePayment = async (req, res) => {
                 '9800000000'
         };
 
-        /* 
-           PRE-BOOKING VALIDATION PHASE
-           ---------------------------- 
-           Verify room availability and calculate stay duration before 
-           touching the database or initiating payment.
-        */
-
-        // 1. Availability check: ensure no overlap with existing confirmed stays
         const [availableRooms] = await db.query(`
             SELECT r.id, r.room_number, rt.base_price, rt.name as type_name, rt.max_occupancy
             FROM rooms r
@@ -214,11 +229,8 @@ const initiatePayment = async (req, res) => {
             });
         }
 
-        // 2. Select rooms randomly from available ones
-        // Logic: Distribute usage across identical units to prevent uneven wear and tear.
-        const targetRoom = availableRooms[0]; // just grab the first to read base_price and occupancy
+        const targetRoom = availableRooms[0];
 
-        // 3. Occupancy Capacity Check
         if (num_guests > targetRoom.max_occupancy * numRooms) {
             return res.status(400).json({
                 success: false,
@@ -232,12 +244,6 @@ const initiatePayment = async (req, res) => {
         const nights = Math.max(1, Math.ceil(stayDuration / (1000 * 60 * 60 * 24)));
         let expectedTotal = targetRoom.base_price * nights * numRooms;
 
-        /*
-           LOYALTY PROGRAM CHECK
-           ---------------------
-           If the user has completed 5 stays at this hotel in the current year,
-           they earn 1 free night (deducted per room from the total).
-        */
         const currentYear = new Date().getFullYear();
         const [loyaltyRows] = await db.query(
             `SELECT COUNT(*) as completed_stays FROM bookings 
@@ -260,18 +266,14 @@ const initiatePayment = async (req, res) => {
         const redeemedCount = redeemedRows[0].redeemed_count || 0;
         const hasLoyaltyReward = totalCyclesCompleted > redeemedCount;
 
-        // Apply 1 free night per room if loyalty reward is available
         let loyaltyDiscount = 0;
         let applyLoyalty = false;
         if (hasLoyaltyReward && req.body.apply_loyalty !== false) {
-            loyaltyDiscount = targetRoom.base_price * numRooms; // 1 night free per room
+            loyaltyDiscount = targetRoom.base_price * numRooms;
             expectedTotal = expectedTotal - loyaltyDiscount;
             applyLoyalty = true;
         }
 
-        // Strict Price Verification
-        // SECURITY NOTE: Recalculate on server to prevent client-side tampering. 
-        // We do not trust the 'amount' field sent directly from the frontend payload.
         if (Math.abs(Number(amount) - expectedTotal) > 0.05) {
             return res.status(400).json({
                 success: false,
@@ -292,32 +294,23 @@ const initiatePayment = async (req, res) => {
             });
         }
 
-        /*
-           PERSISTENCE & PAYMENT INITIATION
-           --------------------------------
-           Record the intent into our ledger before handing off to Khalti.
-        */
-
-        // Reference generation (BK- prefix kept for legacy accounting compatibility)
         const booking_ref = `BK-${Date.now()}`;
         const bookingIds = [];
         
-        // Distribute guests among rooms
         const baseGuestsPerRoom = Math.floor(num_guests / numRooms);
         const remainingGuests = num_guests % numRooms;
 
-        // Shuffle available rooms to rotate usage
         const shuffledRooms = availableRooms.sort(() => 0.5 - Math.random()).slice(0, numRooms);
 
         for (let i = 0; i < numRooms; i++) {
             const currentRoomId = shuffledRooms[i].id;
             const guestsForThisRoom = baseGuestsPerRoom + (i < remainingGuests ? 1 : 0);
-            const unique_booking_ref = `${booking_ref}-${i + 1}`; // Ensure unique booking_reference for DB constraint
+            const unique_booking_ref = `${booking_ref}-${i + 1}`;
 
             let current_total = targetRoom.base_price * nights;
-            const perRoomLoyaltyDiscount = applyLoyalty ? targetRoom.base_price : 0; // 1 free night
+            const perRoomLoyaltyDiscount = applyLoyalty ? targetRoom.base_price : 0;
             current_total = current_total - perRoomLoyaltyDiscount;
-            const commission = current_total * 0.10; // 10% Platform Fee (on discounted amount)
+            const commission = current_total * 0.10;
 
             const [bookingInsert] = await db.query(
                 `INSERT INTO bookings (booking_reference, user_id, hotel_id, room_id, check_in_date, check_out_date, num_guests, total_nights, price_per_night, total_amount, commission_amount, loyalty_free_night, loyalty_discount, status, payment_status) 
@@ -331,10 +324,8 @@ const initiatePayment = async (req, res) => {
             );
 
             bookingIds.push(bookingInsert.insertId);
-            
-            // Trigger 'Reservation Pending' emails immediately async for the FIRST room only, or aggregate. Let's aggregate for admin.
+
             if (i === 0) {
-                // Safety check: ensure the record was verified by a fresh read
                 const [purchasedItemData] = await db.query(`
                     SELECT b.*, h.name as hotel_name, h.email as hotel_email, r.room_number,
                            bgd.guest_name, bgd.guest_email, bgd.guest_phone,
@@ -481,7 +472,6 @@ const initiatePayment = async (req, res) => {
             });
         }
 
-        // 4. Khalti Protocol Handshake
         const clientOrigin = req.headers.origin 
             || (req.headers.referer ? new URL(req.headers.referer).origin : null) 
             || process.env.FRONTEND_URL 
@@ -490,8 +480,8 @@ const initiatePayment = async (req, res) => {
         let paymentInit;
         try {
             paymentInit = await initializeKhaltiPayment({
-                amount: Math.round(expectedTotal * 100), // Amount in paisa, strictly rounded to int
-                purchase_order_id: bookingIds.join('-').substring(0, 100), // hyphen separated booking IDs
+                amount: Math.round(expectedTotal * 100), // paisa
+                purchase_order_id: bookingIds.join('-').substring(0, 100),
                 purchase_order_name: `${numRooms}x ${targetRoom.type_name}`.substring(0, 50),
                 customer_info: {
                     name: (ci.name || 'Guest').substring(0, 50),
@@ -532,14 +522,12 @@ const initiatePayment = async (req, res) => {
             });
         }
 
-        // Record attempt in payments table (Store pidx specifically for refunds later)
         for (const bkId of bookingIds) {
             await db.query(`INSERT INTO payments (booking_id, amount, payment_method, transaction_id, pidx, status) VALUES (?, ?, 'khalti', ?, ?, 'pending')`,
                 [bkId, targetRoom.base_price * nights, paymentInit.pidx, paymentInit.pidx]
             );
         }
 
-        // 5. Send Payment Info: Matching user's preferred response structure
         res.json({
             success: true,
             method: 'khalti',
@@ -556,18 +544,191 @@ const initiatePayment = async (req, res) => {
     }
 };
 
-/**
- * Mandatory Verification (Lookup API)
- * Strictly follows "Payment Verification (Lookup)" section of doc
- */
+const initiatePayOnlineForBooking = async (req, res) => {
+    try {
+        let ids = [];
+        if (Array.isArray(req.body.bookingIds) && req.body.bookingIds.length > 0) {
+            ids = [...new Set(req.body.bookingIds.map((id) => parseInt(id, 10)).filter((n) => n > 0))];
+        } else if (req.body.bookingId != null && req.body.bookingId !== '') {
+            const one = parseInt(req.body.bookingId, 10);
+            if (one > 0) ids = [one];
+        }
+        if (ids.length === 0) {
+            return res.status(400).json({ success: false, message: 'bookingId or bookingIds is required' });
+        }
+
+        if (!String(RAW_KEY).trim()) {
+            return res.status(503).json({
+                success: false,
+                code: 'KHALTI_NOT_CONFIGURED',
+                message:
+                    'Online payment is not configured. Add KHALTI_SECRET_KEY to the server .env file, or pay at the hotel on arrival.'
+            });
+        }
+
+        const ph = ids.map(() => '?').join(',');
+        const [rows] = await db.query(
+            `SELECT b.*,
+                    bgd.guest_name, bgd.guest_phone, bgd.guest_email,
+                    u.email AS booker_email, u.full_name AS booker_name, u.phone AS booker_phone,
+                    rt.name AS room_type_name
+             FROM bookings b
+             JOIN users u ON b.user_id = u.id
+             JOIN rooms r ON r.id = b.room_id
+             JOIN room_types rt ON rt.id = r.room_type_id
+             LEFT JOIN booking_guest_details bgd ON bgd.booking_id = b.id
+             WHERE b.id IN (${ph})`,
+            ids
+        );
+
+        if (rows.length !== ids.length) {
+            return res.status(404).json({ success: false, message: 'One or more bookings were not found' });
+        }
+
+        for (const booking of rows) {
+            if (booking.user_id !== req.user.id) {
+                return res.status(403).json({ success: false, message: 'You can only pay for your own booking.' });
+            }
+            if (booking.status !== 'confirmed' || booking.payment_status !== 'pending') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Online prepay is only available for confirmed bookings that are not yet paid online.'
+                });
+            }
+        }
+
+        const groupKeys = rows.map((r) => {
+            const m = String(r.booking_reference || '').match(/^(BK-\d+)-\d+$/);
+            return m ? m[1] : `solo:${r.id}`;
+        });
+        if (new Set(groupKeys).size !== 1) {
+            return res.status(400).json({
+                success: false,
+                message: 'Those bookings are not part of the same reservation. Pay for each separately.'
+            });
+        }
+
+        const [pendingKhalti] = await db.query(
+            `SELECT id FROM payments WHERE booking_id IN (${ph}) AND payment_method = 'khalti' AND status = 'pending'`,
+            ids
+        );
+        if (pendingKhalti.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'You already have a Khalti payment in progress. Use Verify Payment or wait a moment and try again.'
+            });
+        }
+
+        const booking = rows[0];
+        const bookerEmail = String(booking.booker_email || booking.guest_email || '').trim();
+        if (!bookerEmail) {
+            return res.status(400).json({
+                success: false,
+                message: 'Your account has no email on file. Update your profile before paying online.'
+            });
+        }
+
+        const total = rows.reduce((sum, r) => sum + Number(r.total_amount), 0);
+        if (!Number.isFinite(total) || total <= 0) {
+            return res.status(400).json({ success: false, message: 'Invalid booking amount.' });
+        }
+
+        const clientOrigin =
+            req.headers.origin ||
+            (req.headers.referer ? new URL(req.headers.referer).origin : null) ||
+            process.env.FRONTEND_URL ||
+            'http://localhost:3000';
+
+        const ciName =
+            String(booking.guest_name || booking.booker_name || 'Guest').substring(0, 50);
+        const ciPhone = String(
+            booking.guest_phone || booking.booker_phone || '9800000000'
+        ).substring(0, 20);
+
+        const sortedIds = [...ids].sort((a, b) => a - b);
+        const purchaseOrderId = sortedIds.join('-').substring(0, 100);
+        const purchaseOrderName =
+            rows.length > 1
+                ? `${rows.length} rooms · ${booking.room_type_name || 'Hotel stay'}`.substring(0, 50)
+                : String(booking.room_type_name || 'Hotel stay').substring(0, 50);
+
+        let paymentInit;
+        try {
+            paymentInit = await initializeKhaltiPayment({
+                amount: Math.round(total * 100),
+                purchase_order_id: purchaseOrderId,
+                purchase_order_name: purchaseOrderName,
+                customer_info: {
+                    name: ciName,
+                    email: bookerEmail.substring(0, 50),
+                    phone: ciPhone
+                },
+                return_url: `${clientOrigin}/payment/callback`,
+                website_url: clientOrigin
+            });
+        } catch (khaltiErr) {
+            const khaltiBody = khaltiErr.response?.data;
+            console.error('Khalti pay-online initiate error:', khaltiBody || khaltiErr.message);
+            return res.status(502).json({
+                success: false,
+                code: 'KHALTI_INIT_FAILED',
+                message:
+                    khaltiBody?.detail ||
+                    khaltiBody?.error_key ||
+                    'Could not start Khalti payment. Check KHALTI_SECRET_KEY and server logs.',
+                error: khaltiBody || khaltiErr.message
+            });
+        }
+
+        if (!paymentInit || !paymentInit.payment_url) {
+            return res.status(502).json({
+                success: false,
+                code: 'KHALTI_NO_PAYMENT_URL',
+                message: 'Payment gateway did not return a payment URL.',
+                error: paymentInit
+            });
+        }
+
+        for (const row of rows) {
+            const amt = Number(row.total_amount);
+            await db.query(
+                `INSERT INTO payments (booking_id, amount, payment_method, transaction_id, pidx, status) VALUES (?, ?, 'khalti', ?, ?, 'pending')`,
+                [row.id, amt, paymentInit.pidx, paymentInit.pidx]
+            );
+        }
+
+        res.json({
+            success: true,
+            method: 'khalti',
+            payment: paymentInit
+        });
+    } catch (error) {
+        console.error('initiatePayOnlineForBooking error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Failed to start online payment' });
+    }
+};
+
 const verifyPayment = async (req, res) => {
     try {
         let { pidx, purchase_order_id } = req.body;
         console.log(`[Khalti] Verification request received. pidx: ${pidx}, id: ${purchase_order_id}`);
+        const resolveBookingIds = async (statusDataLike, fallbackPidx) => {
+            const raw = String(statusDataLike?.purchase_order_id || '').trim();
+            if (raw) {
+                const ids = raw
+                    .split('-')
+                    .map((id) => parseInt(String(id).trim(), 10))
+                    .filter((id) => !Number.isNaN(id));
+                if (ids.length) return ids;
+            }
+            const [rows] = await db.query(
+                'SELECT DISTINCT booking_id FROM payments WHERE pidx = ? AND booking_id IS NOT NULL ORDER BY booking_id',
+                [fallbackPidx]
+            );
+            return rows.map((r) => Number(r.booking_id)).filter((n) => Number.isFinite(n));
+        };
 
         if (!pidx && purchase_order_id) {
-            // Find the pidx from our database using booking ID
-            // Handle both single numeric IDs and legacy hyphenated strings
             const searchId = String(purchase_order_id).split('-')[0];
             const [payments] = await db.query(
                 "SELECT pidx FROM payments WHERE booking_id = ? OR pidx = ? ORDER BY created_at DESC LIMIT 1",
@@ -586,19 +747,17 @@ const verifyPayment = async (req, res) => {
                 message: 'Transaction token (pidx) not found. If this was a fresh payment, please wait a moment or try again from your dashboard.' 
             });
         }
+        if (!String(RAW_KEY).trim()) {
+            return res.status(503).json({
+                success: false,
+                message: 'Khalti is not configured on server. Add a valid KHALTI_SECRET_KEY and restart backend.'
+            });
+        }
+        pidx = String(pidx).trim();
 
-        // POST /epayment/lookup/
-        const response = await axios.post(KHALTI_LOOKUP_URL, { pidx }, {
-            headers: {
-                'Authorization': KHALTI_AUTH_HEADER,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        const statusData = response.data;
+        const statusData = await lookupKhaltiPaymentStatus(pidx);
         console.log(`[Khalti] Remote status for ${pidx}: ${statusData.status}`);
 
-        // status values: 'Completed', 'Pending', 'User canceled', 'Expired', 'Refunded'
         if (statusData.status === 'Completed') {
             const extConn = await db.getConnection();
             try {
@@ -695,7 +854,7 @@ const verifyPayment = async (req, res) => {
                 extConn.release();
             }
 
-            const booking_ids = statusData.purchase_order_id.split('-').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+            const booking_ids = await resolveBookingIds(statusData, pidx);
             const rawPoid = String(statusData.purchase_order_id || '');
             if (/^EXT\d+$/i.test(rawPoid) && booking_ids.length === 0) {
                 return res.status(400).json({
@@ -720,7 +879,6 @@ const verifyPayment = async (req, res) => {
                     [statusData.transaction_id, bId, pidx]
                 );
 
-                // 2. Fetch Deep Details for Email
                 const [fullDetails] = await db.query(`
                     SELECT b.*, h.name as hotel_name, h.email as hotel_email, r.room_number,
                            bgd.guest_name, bgd.guest_email, bgd.guest_phone,
@@ -756,7 +914,6 @@ const verifyPayment = async (req, res) => {
                     );
                     }
 
-                    // Send Admin Notification
                   if (bd.hotel_email) {
                     confirmEmailJobs.push(
                       emailService.sendAdminBookingNotification(bd.hotel_email, emailData)
@@ -800,8 +957,6 @@ const verifyPayment = async (req, res) => {
                 }
             }
 
-            // Success handled above inside loop
-
             return res.json({
                 success: true,
                 message: 'Payment verified successfully. Welcome to Nepal Stays!',
@@ -817,11 +972,7 @@ const verifyPayment = async (req, res) => {
                 data: statusData
             });
         } else {
-            // Status: 'User canceled', 'Expired', 'Refunded'
-            const bookingIds = String(statusData.purchase_order_id || '')
-                .split('-')
-                .map((id) => parseInt(id.trim(), 10))
-                .filter((id) => !isNaN(id));
+            const bookingIds = await resolveBookingIds(statusData, pidx);
 
             for (const bookingId of bookingIds) {
                 const [bookingRows] = await db.query(
@@ -848,17 +999,23 @@ const verifyPayment = async (req, res) => {
 
         } catch (error) {
         const khaltiError = error.response?.data || error.message;
+        const statusCode = error.response?.status || 500;
         console.error('[Khalti] Critical Lookup Failure:', khaltiError);
         await notificationEvents.notifySystemAlert({
             title: 'Payment gateway issue',
             message: `Khalti verification failed: ${String(error.response?.status || '')} ${String(error.message || '').slice(0, 180)}`
         });
         
-        res.status(error.response?.status || 500).json({
+        res.status(statusCode).json({
             success: false,
             message: 'Failed to verify transaction status with Khalti',
             details: khaltiError,
-            tip: error.response?.status === 401 ? 'Check if your KHALTI_SECRET_KEY in .env is correct for V2 APIs.' : 'Ensure your network allows connections to a.khalti.com'
+            tip:
+                statusCode === 401 || statusCode === 403
+                    ? 'Khalti key mismatch (test/live or invalid key). Update KHALTI_SECRET_KEY and restart backend.'
+                    : statusCode === 400
+                        ? 'Invalid/expired pidx. Retry payment from dashboard if this token is stale.'
+                        : 'Ensure backend can reach both a.khalti.com and khalti.com, then retry verification.'
         });
     }
 };
@@ -882,7 +1039,6 @@ const refundPayment = async (req, res) => {
       return res.status(400).json({ success: false, message: 'REFUND_DENIED: Stays already in progress cannot be refunded.' });
     }
 
-    // Check if there is a paid payment
     const [payments] = await db.query("SELECT id FROM payments WHERE booking_id = ? AND status = 'completed'", [bookingId]);
     if (payments.length === 0 && booking.payment_status !== 'paid') {
       return res.status(400).json({ success: false, message: 'No completed payment found to refund.' });
@@ -937,11 +1093,14 @@ const cancelBooking = async (req, res) => {
     if (bookingRows.length === 0) return res.status(404).json({ success: false, message: 'Booking not found' });
     const booking = bookingRows[0];
 
+    if (booking.user_id !== req.user.id && !['admin', 'superadmin'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: 'You can only cancel your own booking.' });
+    }
+
     if (booking.status === 'checked_in') {
       return res.status(400).json({ success: false, message: 'CANCEL_DENIED: Cannot cancel an active stay.' });
     }
 
-    // If paid, create refund request instead of auto-refund
     if (booking.payment_status === 'paid') {
       await db.query(
         "INSERT INTO refund_requests (booking_id, user_id, hotel_id, amount, reason) VALUES (?, ?, ?, ?, ?)",
@@ -984,6 +1143,210 @@ const cancelBooking = async (req, res) => {
   }
 };
 
+const updateBookingGuestDetails = async (req, res) => {
+  try {
+    const { bookingId, guest_name, guest_phone, special_requests } = req.body;
+    if (!bookingId) {
+      return res.status(400).json({ success: false, message: 'bookingId is required' });
+    }
+
+    const [bookingRows] = await db.query(
+      'SELECT id, user_id, status FROM bookings WHERE id = ? LIMIT 1',
+      [bookingId]
+    );
+    if (bookingRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+    const booking = bookingRows[0];
+    if (booking.user_id !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'You can only edit your own booking' });
+    }
+    if (!['pending', 'confirmed'].includes(booking.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Guest details can only be edited before check-in'
+      });
+    }
+
+    await db.query(
+      `UPDATE booking_guest_details
+       SET guest_name = COALESCE(?, guest_name),
+           guest_phone = COALESCE(?, guest_phone),
+           special_requests = COALESCE(?, special_requests)
+       WHERE booking_id = ?`,
+      [
+        guest_name !== undefined ? String(guest_name).trim() : null,
+        guest_phone !== undefined ? String(guest_phone).trim() : null,
+        special_requests !== undefined ? String(special_requests).trim() : null,
+        bookingId
+      ]
+    );
+
+    res.json({ success: true, message: 'Guest details updated successfully.' });
+  } catch (error) {
+    console.error('updateBookingGuestDetails error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update guest details' });
+  }
+};
+
+const updateBookingNumGuests = async (req, res) => {
+  try {
+    const { bookingId, num_guests } = req.body;
+    const nextGuests = Number(num_guests);
+    if (!bookingId || !Number.isFinite(nextGuests) || nextGuests < 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'bookingId and a valid num_guests are required'
+      });
+    }
+
+    const [bookingRows] = await db.query(
+      `SELECT b.id, b.user_id, b.status, b.room_id, rt.max_occupancy
+       FROM bookings b
+       JOIN rooms r ON b.room_id = r.id
+       JOIN room_types rt ON r.room_type_id = rt.id
+       WHERE b.id = ?
+       LIMIT 1`,
+      [bookingId]
+    );
+    if (bookingRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    const booking = bookingRows[0];
+    if (booking.user_id !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'You can only edit your own booking' });
+    }
+    if (!['pending', 'confirmed'].includes(booking.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Guest count can only be edited before check-in'
+      });
+    }
+
+    const maxOcc = Number(booking.max_occupancy || 0);
+    if (maxOcc > 0 && nextGuests > maxOcc) {
+      return res.status(400).json({
+        success: false,
+        code: 'EXCEEDS_CAPACITY',
+        message: `This room allows up to ${maxOcc} guest(s).`,
+        max_occupancy: maxOcc
+      });
+    }
+
+    await db.query('UPDATE bookings SET num_guests = ? WHERE id = ?', [Math.floor(nextGuests), bookingId]);
+    res.json({ success: true, message: 'Guest count updated successfully.' });
+  } catch (error) {
+    console.error('updateBookingNumGuests error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update guest count' });
+  }
+};
+
+const rescheduleBooking = async (req, res) => {
+  const connection = await db.getConnection();
+  try {
+    const { bookingId, check_in_date, check_out_date } = req.body;
+    if (!bookingId || !check_in_date || !check_out_date) {
+      return res.status(400).json({
+        success: false,
+        message: 'bookingId, check_in_date and check_out_date are required'
+      });
+    }
+
+    const newCheckIn = new Date(check_in_date);
+    const newCheckOut = new Date(check_out_date);
+    if (Number.isNaN(newCheckIn.getTime()) || Number.isNaN(newCheckOut.getTime()) || newCheckOut <= newCheckIn) {
+      return res.status(400).json({ success: false, message: 'Invalid date range.' });
+    }
+
+    await connection.beginTransaction();
+    const [rows] = await connection.query(
+      `SELECT id, user_id, room_id, status, price_per_night, num_guests, loyalty_free_night
+       FROM bookings WHERE id = ? FOR UPDATE`,
+      [bookingId]
+    );
+    if (rows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    const booking = rows[0];
+    if (booking.user_id !== req.user.id) {
+      await connection.rollback();
+      return res.status(403).json({ success: false, message: 'You can only modify your own booking' });
+    }
+    if (!['pending', 'confirmed'].includes(booking.status)) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Only pending/confirmed bookings can be rescheduled.'
+      });
+    }
+
+    const [conflicts] = await connection.query(
+      `SELECT id FROM bookings
+       WHERE room_id = ?
+         AND id != ?
+         AND status IN ('confirmed', 'checked_in')
+         AND check_in_date < ?
+         AND check_out_date > ?`,
+      [booking.room_id, bookingId, check_out_date, check_in_date]
+    );
+    if (conflicts.length > 0) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: 'Selected dates conflict with another reservation for this room.'
+      });
+    }
+
+    const nights = Math.max(1, Math.ceil((newCheckOut.getTime() - newCheckIn.getTime()) / (1000 * 60 * 60 * 24)));
+    const pricePerNight = Number(booking.price_per_night || 0);
+    let newTotal = Number((pricePerNight * nights).toFixed(2));
+    let loyaltyDiscount = 0;
+
+    if (Number(booking.loyalty_free_night || 0) === 1 && nights >= 1) {
+      loyaltyDiscount = pricePerNight;
+      newTotal = Number(Math.max(0, newTotal - loyaltyDiscount).toFixed(2));
+    }
+
+    const commission = Number((newTotal * PLATFORM_FEE_RATE).toFixed(2));
+
+    await connection.query(
+      `UPDATE bookings
+       SET check_in_date = ?,
+           check_out_date = ?,
+           total_nights = ?,
+           total_amount = ?,
+           loyalty_discount = ?,
+           commission_amount = ?
+       WHERE id = ?`,
+      [check_in_date, check_out_date, nights, newTotal, loyaltyDiscount, commission, bookingId]
+    );
+
+    await connection.commit();
+    res.json({
+      success: true,
+      message: 'Booking rescheduled successfully.',
+      booking: {
+        id: Number(bookingId),
+        check_in_date,
+        check_out_date,
+        total_nights: nights,
+        total_amount: newTotal,
+        loyalty_discount: loyaltyDiscount,
+        commission_amount: commission
+      }
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('rescheduleBooking error:', error);
+    res.status(500).json({ success: false, message: 'Failed to reschedule booking' });
+  } finally {
+    connection.release();
+  }
+};
+
 const getPendingRefunds = async (req, res) => {
   try {
     const [requests] = await db.query(`
@@ -1012,7 +1375,6 @@ const confirmRefund = async (req, res) => {
     if (requests.length === 0) return res.status(404).json({ success: false, message: 'Request missing' });
     const request = requests[0];
 
-    // Khalti logic
     const [payments] = await connection.query("SELECT * FROM payments WHERE booking_id = ? AND status = 'completed'", [request.booking_id]);
     if (payments.length > 0) {
       try {
@@ -1089,7 +1451,6 @@ const manualConfirmBooking = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Booking ID is required' });
         }
 
-        // 1. Update Booking & Payment status
         const bookingUpdate = await setBookingStatus(db, {
             bookingId,
             toStatus: 'confirmed',
@@ -1102,13 +1463,11 @@ const manualConfirmBooking = async (req, res) => {
             }
         });
 
-        // Update payment record 
         await db.query(
             "UPDATE payments SET status = 'completed', paid_at = CURRENT_TIMESTAMP WHERE booking_id = ?",
             [bookingId]
         );
 
-        // Update room status to booked
         if (bookingUpdate?.roomId) {
             await setRoomStatus(db, {
                 roomId: bookingUpdate.roomId,
@@ -1120,7 +1479,6 @@ const manualConfirmBooking = async (req, res) => {
             });
         }
 
-        // Fetch deep details for sending confirmation email on manual verify
         const [fullDetails] = await db.query(`
             SELECT b.*, h.name as hotel_name, h.email as hotel_email, r.room_number,
                    bgd.guest_name, bgd.guest_email, bgd.guest_phone,
@@ -1189,10 +1547,6 @@ const manualConfirmBooking = async (req, res) => {
     }
 };
 
-/**
- * Extra nights after check-in: updates booking totals and hotel balance.
- * Paid (e.g. Khalti): hotel gets (extension gross − platform fee). Cash: hotel collected gross; deduct fee from balance.
- */
 const applyStayExtension = async (connection, booking, additionalNights, extGross, extCommission) => {
   const [upd] = await connection.query(
     `UPDATE bookings SET
@@ -1212,7 +1566,6 @@ const applyStayExtension = async (connection, booking, additionalNights, extGros
 };
 
 const updateHotelBalanceOnCheckIn = async (connection, bookingId) => {
-  // 1. Fetch booking details
   const [rows] = await connection.query(
     "SELECT hotel_id, total_amount, commission_amount, payment_status, balance_synced FROM bookings WHERE id = ?",
     [bookingId]
@@ -1220,9 +1573,6 @@ const updateHotelBalanceOnCheckIn = async (connection, bookingId) => {
   if (rows.length === 0 || rows[0].balance_synced) return;
   const booking = rows[0];
 
-  // 2. Logic:
-  // If Khalti (paid previously): Credit (Total - Commission)
-  // If Cash/Pending (unpaid): Deduct Commission (hotel collects 100%)
   if (booking.payment_status === 'paid') {
     const netAmount = Number(booking.total_amount) - Number(booking.commission_amount || 0);
     await connection.query('UPDATE hotels SET balance = balance + ? WHERE id = ?', [netAmount, booking.hotel_id]);
@@ -1230,14 +1580,9 @@ const updateHotelBalanceOnCheckIn = async (connection, bookingId) => {
     await connection.query('UPDATE hotels SET balance = balance - ? WHERE id = ?', [Number(booking.commission_amount || 0), booking.hotel_id]);
   }
 
-  // 3. Mark as synced
   await connection.query('UPDATE bookings SET balance_synced = 1 WHERE id = ?', [bookingId]);
 };
 
-/**
- * Guest extends stay after original check-out date while still checked in.
- * Platform fee (10%) applies to extension gross; hotel balance follows the same rules as check-in sync.
- */
 const extendStay = async (req, res) => {
   const { bookingId, additional_nights, payment_method } = req.body;
   const nights = Math.min(90, Math.max(1, parseInt(additional_nights, 10) || 0));
@@ -1482,12 +1827,6 @@ const checkOutBooking = async (req, res) => {
     }
 };
 
-/**
- * QR-BASED SECURE CHECK-IN SYSTEM
- * ------------------------------
- * logic for token signing, validation, and auto-checkin
- */
-
 const generateQRToken = async (req, res) => {
     try {
         const { bookingId } = req.params;
@@ -1497,12 +1836,10 @@ const generateQRToken = async (req, res) => {
 
         const booking = bookings[0];
 
-        // Security: only the guest who booked or an admin can generate the token
         if (req.user.role === 'guest' && req.user.id != booking.user_id) {
             return res.status(403).json({ success: false, message: 'Access denied' });
         }
 
-        // Generate signed JWT for the QR (expires in 48 hours to prevent long-term reuse)
         const token = jwt.sign({
             bookingId: booking.id,
             ref: booking.booking_reference,
@@ -1533,7 +1870,6 @@ const scanCheckIn = async (req, res) => {
 
         const { bookingId, hotelId } = decoded;
 
-        // Fetch deep booking details
         const [rows] = await connection.query(`
             SELECT b.*, h.name as hotel_name, r.room_number, rt.name as room_type,
                    u.full_name AS account_full_name,
@@ -1556,9 +1892,6 @@ const scanCheckIn = async (req, res) => {
 
         const booking = rows[0];
 
-        // --- VALIDATION LAYERS ---
-
-        // 1. Hotel Scoped Security
         if (req.user.role === 'admin' && req.user.hotel_id !== booking.hotel_id) {
             await connection.query('INSERT INTO scan_logs (booking_id, hotel_id, scanned_by, status, error_message) VALUES (?, ?, ?, ?, ?)',
                 [bookingId, booking.hotel_id, req.user.id, 'failed_wrong_hotel', 'Attempted scan at wrong property']);
@@ -1566,7 +1899,6 @@ const scanCheckIn = async (req, res) => {
             return res.status(403).json({ success: false, message: 'WRONG_PROPERTY: This booking belongs to another hotel' });
         }
 
-        // 2. Status check
         if (booking.status === 'checked_in') {
             await connection.query('INSERT INTO scan_logs (booking_id, hotel_id, scanned_by, status, error_message) VALUES (?, ?, ?, ?, ?)',
                 [bookingId, booking.hotel_id, req.user.id, 'failed_already_checked_in', 'Guest already checked in']);
@@ -1581,16 +1913,12 @@ const scanCheckIn = async (req, res) => {
             return res.status(400).json({ success: false, message: 'NOT_VALID: This booking was cancelled or refunded' });
         }
 
-        // 3. Time Window Validation (Prevent arrival too early)
         const today = new Date().toISOString().split('T')[0];
         const checkInDate = new Date(booking.check_in_date).toISOString().split('T')[0];
         if (today < checkInDate) {
             return res.status(400).json({ success: false, message: `EARLY_ARRIVAL: Check-in only allowed from ${checkInDate}` });
         }
 
-        // --- EXECUTION ---
-
-        // 4. Update Booking Status
         await setBookingStatus(connection, {
             bookingId,
             toStatus: 'checked_in',
@@ -1601,7 +1929,6 @@ const scanCheckIn = async (req, res) => {
             }
         });
 
-        // 5. Update Room Status
         await setRoomStatus(connection, {
             roomId: booking.room_id,
             toStatus: 'occupied',
@@ -1611,11 +1938,8 @@ const scanCheckIn = async (req, res) => {
             referenceId: bookingId
         });
 
-        // 6. Log successful audit trail
-        // 5.5. Update Balance
         await updateHotelBalanceOnCheckIn(connection, bookingId);
 
-        // 6. Log successful audit trail
         await connection.query('INSERT INTO scan_logs (booking_id, hotel_id, scanned_by, status) VALUES (?, ?, ?, ?)',
             [bookingId, booking.hotel_id, req.user.id, 'success']);
 
@@ -1656,8 +1980,6 @@ const scanCheckIn = async (req, res) => {
     }
 };
 
-// --- PAYOUT MANAGEMENT ---
-
 const requestPayout = async (req, res) => {
   try {
     const { amount, notes } = req.body;
@@ -1666,7 +1988,6 @@ const requestPayout = async (req, res) => {
     if (!hotelId) return res.status(403).json({ success: false, message: 'Only hotel admins can request payouts.' });
     if (!amount || amount <= 0) return res.status(400).json({ success: false, message: 'Invalid payout amount.' });
 
-    // Check hotel balance
     const [hotels] = await db.query("SELECT balance FROM hotels WHERE id = ?", [hotelId]);
     if (hotels.length === 0) return res.status(404).json({ success: false, message: 'Hotel not found.' });
     
@@ -1675,7 +1996,6 @@ const requestPayout = async (req, res) => {
       return res.status(400).json({ success: false, message: `Insufficient balance. Available: Rs. ${availableBalance.toLocaleString()}` });
     }
 
-    // Check for existing pending requests
     const [pending] = await db.query("SELECT id FROM hotel_payout_requests WHERE hotel_id = ? AND status = 'pending'", [hotelId]);
     if (pending.length > 0) {
       return res.status(400).json({ success: false, message: 'You already have a pending payout request.' });
@@ -1722,7 +2042,6 @@ const approvePayout = async (req, res) => {
        return res.status(400).json({ success: false, message: 'Request already processed.' });
     }
 
-    // Deduct from hotel balance
     const [hotels] = await connection.query("SELECT balance FROM hotels WHERE id = ?", [request.hotel_id]);
     if (hotels.length === 0) throw new Error('Hotel not found');
     
@@ -1768,6 +2087,7 @@ const rejectPayout = async (req, res) => {
 
 module.exports = {
   initiatePayment,
+  initiatePayOnlineForBooking,
   verifyPayment,
   refundPayment,
   cancelBooking,
@@ -1783,5 +2103,8 @@ module.exports = {
   requestPayout,
   getPendingPayouts,
   approvePayout,
-  rejectPayout
+  rejectPayout,
+  updateBookingGuestDetails,
+  updateBookingNumGuests,
+  rescheduleBooking
 };
