@@ -1,14 +1,10 @@
 const db = require('../config/db');
 
-/**
- * Submit a new review for a booking
- */
 exports.createReview = async (req, res) => {
     const { booking_id, rating, comment, cleanliness_rating, service_rating, location_rating, value_rating, title } = req.body;
-    const user_id = req.user.id; // From protect middleware
+    const user_id = req.user.id;
 
     try {
-        // 1. Verify booking exists and belongs to user
         const [bookings] = await db.query(
             'SELECT hotel_id, status FROM bookings WHERE id = ? AND user_id = ?',
             [booking_id, user_id]
@@ -20,7 +16,6 @@ exports.createReview = async (req, res) => {
 
         const booking = bookings[0];
 
-        // 1.5. Only allow reviews for checked-in or checked-out bookings
         if (!['checked_in', 'checked_out'].includes(booking.status)) {
             return res.status(400).json({
                 success: false,
@@ -28,13 +23,11 @@ exports.createReview = async (req, res) => {
             });
         }
 
-        // 2. Prevent duplicate reviews for same booking
         const [existing] = await db.query('SELECT id FROM reviews WHERE booking_id = ?', [booking_id]);
         if (existing.length > 0) {
             return res.status(400).json({ success: false, message: 'Multiple submissions for a single registry entry are prohibited.' });
         }
 
-        // 3. Insert review
         await db.query(
             `INSERT INTO reviews 
       (booking_id, user_id, hotel_id, rating, comment, cleanliness_rating, service_rating, location_rating, value_rating, title) 
@@ -42,7 +35,6 @@ exports.createReview = async (req, res) => {
             [booking_id, user_id, booking.hotel_id, rating, comment, cleanliness_rating, service_rating, location_rating, value_rating, title]
         );
 
-        // 4. Update hotel average rating
         const [stats] = await db.query(
             'SELECT AVG(rating) as avg_rating FROM reviews WHERE hotel_id = ?',
             [booking.hotel_id]
@@ -60,9 +52,6 @@ exports.createReview = async (req, res) => {
     }
 };
 
-/**
- * Get reviews for a specific hotel
- */
 exports.getHotelReviews = async (req, res) => {
     const hotel_id = req.params.hotelId;
 
@@ -84,9 +73,6 @@ exports.getHotelReviews = async (req, res) => {
     }
 };
 
-/**
- * Get review for a specific booking (to check if already reviewed)
- */
 exports.getBookingReview = async (req, res) => {
     const booking_id = req.params.bookingId;
     const user_id = req.user.id;
@@ -104,9 +90,6 @@ exports.getBookingReview = async (req, res) => {
     }
 };
 
-/**
- * Get featured reviews for landing page
- */
 exports.getFeaturedReviews = async (req, res) => {
     try {
         const [reviews] = await db.query(

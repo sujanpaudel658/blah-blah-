@@ -7,7 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet-routing-machine';
 import { API_URL } from '../config/api';
 
-// Fix for default marker icon issues in React-Leaflet
+// react-leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
     iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
@@ -15,14 +15,12 @@ L.Icon.Default.mergeOptions({
     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-// -- ROUTING ENGINE COMPONENT --
 const RoutingEngine = ({ from, to }) => {
     const map = useMap();
 
     useEffect(() => {
         if (!map || !from || !to) return;
 
-        // Ensure coordinates are numbers to prevent library crashes
         const start = L.latLng(Number(from[0]), Number(from[1]));
         const end = L.latLng(Number(to[0]), Number(to[1]));
 
@@ -34,11 +32,11 @@ const RoutingEngine = ({ from, to }) => {
                     { color: '#B88E2F', weight: 4, opacity: 1 }
                 ]
             },
-            show: true, // Enable turn-by-turn visual instructions
+            show: true,
             addWaypoints: false,
             draggableWaypoints: false,
             fitSelectedRoutes: true,
-            collapsible: true, // Allow users to hide it if needed
+            collapsible: true,
             itineraryClassName: 'premium-nav-panel',
             createMarker: () => null
         }).addTo(map);
@@ -46,12 +44,10 @@ const RoutingEngine = ({ from, to }) => {
         return () => {
             try {
                 if (map && routingControl) {
-                    // Clear waypoints first to help library internal cleanup
                     routingControl.setWaypoints([]);
                     map.removeControl(routingControl);
                 }
             } catch (e) {
-                // Silently handle the internal Leaflet-Routing-Machine race condition
                 console.debug("Routing cleanup handled");
             }
         };
@@ -92,7 +88,6 @@ const ChatBot = () => {
         scrollToBottom();
     }, [messages]);
 
-    // Handle Geolocation Initialization
     useEffect(() => {
         if (isMapFullScreen && !userLocation) {
             navigator.geolocation.getCurrentPosition(
@@ -102,7 +97,6 @@ const ChatBot = () => {
                 },
                 (err) => {
                     console.error("Location Access Denied:", err);
-                    // Fallback to central Nepal instead of specific Kathmandu street
                     setUserLocation([28.3949, 84.1240]);
                     setIsLocationFallback(true);
                 }
@@ -115,12 +109,10 @@ const ChatBot = () => {
         if (!inputValue.trim()) return;
 
         const userMessage = inputValue.trim();
-        // Only show location/map actions when the user explicitly asks for them.
-        // This prevents the chat UI from always encouraging map/location-related UI.
+        // map CTA only when message looks location-related (avoid nagging every reply)
         const lowerMessage = userMessage.toLowerCase();
         const userWantsLocation =
             /(map|location|directions|route|coordinates|nearby|where|located|address|city|place|find it)/i.test(lowerMessage) ||
-            // Common phrasing: "hotels in Kathmandu"
             /\bin\s+[a-zA-Z]/.test(lowerMessage);
 
         const historyPayload = messages.slice(-8).map((m) => ({
@@ -133,12 +125,18 @@ const ChatBot = () => {
         setIsLoading(true);
 
         try {
-            const response = await axios.post(`${API_URL}/chatbot/query`, {
-                message: userMessage,
-                lastHotel: lastHotel,
-                lastCity: lastHotel?.city || null,
-                history: historyPayload
-            });
+            const response = await axios.post(
+                `${API_URL}/chatbot/query`,
+                {
+                    message: userMessage,
+                    lastHotel: lastHotel,
+                    lastCity: lastHotel?.city || null,
+                    history: historyPayload
+                },
+                {
+                    timeout: 15000
+                }
+            );
             if (response.data.success) {
                 setMessages(prev => [...prev, {
                     text: response.data.reply,
@@ -155,20 +153,36 @@ const ChatBot = () => {
             }
         } catch (error) {
             console.error("Chatbot error:", error);
-            setMessages(prev => [...prev, { text: "Error: Could not reach the server.", isBot: true }]);
+            let replyText;
+            if (error.response) {
+                const d = error.response.data;
+                const serverMsg =
+                    d && typeof d === "object" && typeof d.message === "string" ? d.message : null;
+                replyText =
+                    serverMsg ||
+                    (error.response.status === 400
+                        ? "Invalid request. Please try a different message."
+                        : "The assistant hit a server error. Please try again in a moment.");
+            } else if (error.code === "ECONNABORTED") {
+                replyText = "The request timed out. Please try again.";
+            } else if (error.request) {
+                replyText =
+                    "Could not reach the API. If you run the app locally, start the backend (port 5000) so /api requests can be proxied. In production, set REACT_APP_BACKEND_URL to your API origin.";
+            } else {
+                replyText = "Something went wrong. Please try again.";
+            }
+            setMessages(prev => [...prev, { text: replyText, isBot: true }]);
         } finally {
             setIsLoading(false);
         }
     };
 
-    // Guest-facing only: search tips, hotel info, maps. Staff use the dashboards instead.
     if (hideOnStaffRoutes) {
         return null;
     }
 
     return (
         <div className="fixed bottom-6 right-6 z-[200] font-sans">
-            {/* Chat Bubble Toggle */}
             <button
                 type="button"
                 onClick={() => setIsOpen(!isOpen)}
@@ -185,10 +199,8 @@ const ChatBot = () => {
                 )}
             </button>
 
-            {/* Chat Window */}
             {isOpen && (
                 <div className="absolute bottom-20 right-0 w-80 md:w-96 max-w-[calc(100vw-2rem)] max-h-[min(32rem,calc(100vh-6rem))] origin-bottom-right bg-white border border-gray-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden fade-in transition-all duration-300 transform">
-                    {/* Header */}
                     <div className="shrink-0 bg-[#1B2B41] p-4 text-white flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <div className="w-8 h-8 bg-[#B88E2F] rounded-full flex items-center justify-center text-xs font-bold">NS</div>
@@ -207,7 +219,7 @@ const ChatBot = () => {
                         </button>
                     </div>
 
-                    {/* Messages: min-h-0 so flex child shrinks and scrolls instead of stretching the panel */}
+                    {/* min-h-0: scroll inside flex column */}
                     <div className="flex-1 min-h-0 p-4 overflow-y-auto overflow-x-hidden bg-gray-50 flex flex-col gap-3 custom-scrollbar [scrollbar-gutter:stable]">
                         {messages.map((msg, index) => (
                             <div key={index} className={`flex ${msg.isBot ? 'justify-start' : 'justify-end'}`}>
@@ -250,7 +262,6 @@ const ChatBot = () => {
                         <div ref={messagesEndRef} />
                     </div>
 
-                    {/* Input Area */}
                     <form onSubmit={handleSendMessage} className="shrink-0 p-4 border-t border-gray-100 bg-white flex gap-2">
                         <input
                             type="text"
@@ -268,7 +279,6 @@ const ChatBot = () => {
                         </button>
                     </form>
 
-                    {/* Quick Suggestions */}
                     <div className="shrink-0 px-4 pb-4 flex gap-2 overflow-x-auto custom-scrollbar no-scrollbar text-center">
                         {["Show hotels", "Contact info"].map((suggest, i) => (
                             <button
@@ -283,7 +293,6 @@ const ChatBot = () => {
                 </div>
             )}
 
-            {/* Full Screen Map Overlay */}
             {isMapFullScreen && mapTarget && mapTarget.latitude && (
                 <div className="fixed inset-0 z-[1000] bg-white flex flex-col fade-in">
                     <div className="h-20 px-10 flex items-center justify-between border-b border-[#E2E2E2] bg-[#1B2B41]">

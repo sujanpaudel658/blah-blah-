@@ -1,11 +1,12 @@
 const axios = require('axios');
+const path = require('path');
 
-// Plain call to Google AI Studio / Gemini. Key must live in backend/.env — never commit it.
+// Dotenv before first env read .
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 function normalizeEnvKey(raw) {
     if (raw == null) return '';
     let s = String(raw).trim();
-    // Strip UTF-8 BOM if .env was saved with one
     if (s.charCodeAt(0) === 0xfeff) s = s.slice(1).trim();
     if (
         (s.startsWith('"') && s.endsWith('"')) ||
@@ -21,8 +22,31 @@ function getKey() {
 }
 
 function getModel() {
-    // New AI Studio keys often no longer expose gemini-1.5-flash (404). 2.5-flash is current default.
-    return (process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim();
+    return (process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
+}
+
+function getRequestTimeoutMs() {
+    const raw = Number(process.env.GEMINI_TIMEOUT_MS || 12000);
+    return Number.isFinite(raw) && raw >= 3000 ? raw : 12000;
+}
+
+function getMaxModelAttempts() {
+    const raw = Number(process.env.GEMINI_MAX_MODEL_ATTEMPTS || 2);
+    return Number.isFinite(raw) && raw >= 1 ? Math.min(Math.floor(raw), 4) : 2;
+}
+
+function extractTextFromCandidate(cand) {
+    const parts = cand && cand.content && cand.content.parts;
+    if (!Array.isArray(parts) || !parts.length) return '';
+    const chunks = [];
+    for (let i = 0; i < parts.length; i++) {
+        const p = parts[i];
+        if (p && typeof p.text === 'string') {
+            const t = p.text.trim();
+            if (t) chunks.push(t);
+        }
+    }
+    return chunks.join('\n\n').trim();
 }
 
 function appendContent(contents, role, text) {
@@ -36,10 +60,6 @@ function appendContent(contents, role, text) {
     }
 }
 
-/**
- * Sends system + optional chat history + latest user text to Gemini.
- * history: [{ role: 'user'|'assistant', text }] — last few turns only, trimmed server-side.
- */
 async function askGemini(systemPrompt, userPrompt, history) {
     const key = getKey();
     if (!key) {
@@ -48,16 +68,19 @@ async function askGemini(systemPrompt, userPrompt, history) {
     }
 
     const preferredModel = getModel();
-    // Order tuned for keys where 1.5 returns 404 and quotas differ per model (429 → try next).
     const fallbackModels = [
+        'gemini-2.0-flash',
         'gemini-2.5-flash',
         'gemini-flash-latest',
+        'gemini-2.5-flash-lite',
         'gemini-2.0-flash-lite',
-        'gemini-2.0-flash',
         'gemini-1.5-flash',
         'gemini-1.5-flash-latest'
     ];
-    const modelsToTry = [preferredModel, ...fallbackModels.filter((m) => m !== preferredModel)];
+    const modelsToTry = [preferredModel, ...fallbackModels.filter((m) => m !== preferredModel)].slice(
+        0,
+        getMaxModelAttempts()
+    );
 
     const contents = [];
     if (Array.isArray(history) && history.length > 0) {
@@ -104,7 +127,7 @@ async function askGemini(systemPrompt, userPrompt, history) {
 
         try {
             const res = await axios.post(url, body, {
-                timeout: 45000,
+                timeout: getRequestTimeoutMs(),
                 headers: { 'Content-Type': 'application/json' }
             });
 
@@ -123,14 +146,13 @@ async function askGemini(systemPrompt, userPrompt, history) {
                 console.warn('Gemini finishReason:', cand.finishReason, cand.safetyRatings ? JSON.stringify(cand.safetyRatings) : '');
             }
 
-            const part0 = cand.content && cand.content.parts && cand.content.parts[0];
-            const txt = part0 && part0.text;
-            if (!txt || !String(txt).trim()) {
+            const txt = extractTextFromCandidate(cand);
+            if (!txt) {
                 console.warn('Gemini returned no text (finishReason:', cand.finishReason || 'n/a', ')');
                 return null;
             }
 
-            return String(txt).trim();
+            return txt;
         } catch (e) {
             const status = e.response && e.response.status;
             const detail =
@@ -139,11 +161,22 @@ async function askGemini(systemPrompt, userPrompt, history) {
                     : e.message;
             console.error(`Gemini request failed (${model}) status=${status}:`, detail);
 
+            if (status === 401 || status === 403) {
+                console.error('Gemini API key invalid or forbidden — fix GEMINI_API_KEY in backend/.env');
+                return null;
+            }
+
             const isLast = mi === modelsToTry.length - 1;
-            if (!isLast && (status === 404 || status === 429)) {
-                console.warn(
-                    `Gemini: ${status === 404 ? 'model not found' : 'quota/rate limit'} on ${model} — trying next model…`
-                );
+            const retryable = status === 404 || status === 429 || status === 500 || status === 503;
+            if (!isLast && retryable) {
+                console.warn(`Gemini: trying next model (had status ${status} on ${model})…`);
+                continue;
+            }
+            const transientNet =
+                !e.response &&
+                (e.code === 'ECONNABORTED' || e.code === 'ETIMEDOUT' || e.code === 'ECONNRESET');
+            if (!isLast && transientNet) {
+                console.warn(`Gemini: network issue on ${model} — trying next model…`);
                 continue;
             }
             return null;
