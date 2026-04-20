@@ -1,7 +1,4 @@
-/**
- * Base URL for links in emails (verify, reset). Uses the browser's origin when safe,
- * so LAN / changing Wi‑Fi works without editing .env each time.
- */
+// Email links: use request Origin if local/LAN http(s); else FRONTEND_URL.
 function resolveFrontendBase(clientOrigin) {
     const fallback = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
     const raw = (clientOrigin || '').trim();

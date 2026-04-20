@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_URL } from '../config/api';
 
-// Components
 import AdminLayout from '../components/admin/AdminLayout';
 import StatCard from '../components/admin/StatCard';
 import BookingTable from '../components/admin/BookingTable';
@@ -11,7 +10,6 @@ import HotelProfile from '../components/admin/HotelProfile';
 import MapSection from '../components/admin/MapSection';
 import QRScanner from '../components/admin/QRScanner';
 
-// Utils
 import { parseHotelImages, getImageUrl, compressImage } from '../utils/helpers';
 
 const AdminDashboard = () => {
@@ -36,16 +34,13 @@ const AdminDashboard = () => {
     cashCollected: '0'
   });
 
-  // Financial Detail Modal
   const [showFinanceModal, setShowFinanceModal] = useState(false);
 
-  // UI State
   const [showScanner, setShowScanner] = useState(false);
   const [scannedBooking, setScannedBooking] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
   const [showDirections, setShowDirections] = useState(false);
 
-  // Initial Auth & Data Fetch
   useEffect(() => {
     const init = async () => {
       const token = localStorage.getItem('token');
@@ -83,6 +78,21 @@ const AdminDashboard = () => {
     init();
   }, [navigate]);
 
+  const onPlaceResolved = useCallback((place) => {
+    if (!place) return;
+    setCity(place.city || '');
+    setHotel((prev) =>
+      prev
+        ? {
+            ...prev,
+            city: place.city !== undefined && place.city !== '' ? place.city : prev.city,
+            country: place.country !== undefined && place.country !== '' ? place.country : prev.country,
+            address: place.address !== undefined && place.address !== '' ? place.address : prev.address,
+          }
+        : null
+    );
+  }, []);
+
   const fetchHotelData = async (hotelId) => {
     try {
       const res = await axios.get(`${API_URL}/hotels/${hotelId}`);
@@ -102,11 +112,6 @@ const AdminDashboard = () => {
     }
   };
 
-  /* 
-     HOTEL STATISTICS
-     ----------------
-     Shows how your hotel is performing.
-  */
   const fetchAnalytics = async (hotelId) => {
     try {
       const token = localStorage.getItem('token');
@@ -120,11 +125,9 @@ const AdminDashboard = () => {
       ]);
 
       if (bookingsRes.data.success) {
-        // Safety patch: ensure bookings is always an array to prevent .filter() errors
         const bookings = bookingsRes.data.bookings || [];
         setHotelBookings(bookings);
 
-        // 1. Financial Audit Logic
         const onlinePaid = bookings.filter(b => b?.payment_status === 'paid');
         const cashBookings = bookings.filter(b => b?.payment_status !== 'paid' && b?.status !== 'cancelled' && b?.status !== 'pending');
 
@@ -132,7 +135,6 @@ const AdminDashboard = () => {
         const cashRevenueTotal = cashBookings.reduce((sum, b) => sum + Number(b?.total_amount || 0), 0);
         const commissionTotal = bookings.reduce((sum, b) => sum + Number(b?.commission_amount || 0), 0);
 
-        // 2. Room & Booking Stats
         const roomList = roomsRes.data.rooms || [];
         const totalRooms = roomList.length;
 
@@ -192,6 +194,8 @@ const AdminDashboard = () => {
         latitude,
         longitude,
         city,
+        country: hotel?.country,
+        address: hotel?.address,
         image: JSON.stringify(imagePreviews)
       };
 
@@ -239,11 +243,11 @@ const AdminDashboard = () => {
           guest_name: res.data.guest.name,
           booking_reference: res.data.booking.reference,
           room_number: res.data.room.number,
-          check_in_date: new Date().toISOString(), // Shows today as check-in mapping for display
+          check_in_date: new Date().toISOString(), // display: “today” after scan
           payment_status: 'PAID'
         });
         showNotification(res.data.message);
-        fetchAnalytics(hotel.id); // Refresh dashboard to show new occupancy
+        fetchAnalytics(hotel.id);
       }
     } catch (err) {
       const errorMessage = err.response?.data?.message || 'Could not validate QR code.';
@@ -305,7 +309,6 @@ const AdminDashboard = () => {
       subtitle="SYSTEM ONLINE"
     >
       <div className="space-y-8 pb-12">
-        {/* Success feedback message */}
         {successMessage && (
           <div className="bg-[#E7F3ED] border border-[#108548] p-4 flex items-center gap-3 text-[#108548] font-bold text-xs uppercase tracking-widest mb-6 fade-in">
             <span className="material-symbols-outlined text-sm">verified</span>
@@ -313,7 +316,6 @@ const AdminDashboard = () => {
           </div>
         )}
 
-        {/* 1. STATISTICS OVERVIEW */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
           <div className="lg:col-span-2 relative group cursor-pointer" onClick={handleRequestPayout}>
             <StatCard
@@ -353,7 +355,6 @@ const AdminDashboard = () => {
           </div>
         </div>
 
-        {/* 2. BOOKING LIST */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-[#1B2B41] uppercase tracking-[0.2em]">Booking List</h2>
@@ -369,7 +370,6 @@ const AdminDashboard = () => {
           />
         </div>
 
-        {/* 3. HOTEL MANAGEMENT */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
           <div className="space-y-4">
             <h2 className="text-sm font-bold text-[#1B2B41] uppercase tracking-[0.2em]">Hotel Profile</h2>
@@ -394,7 +394,7 @@ const AdminDashboard = () => {
               longitude={longitude}
               setLongitude={setLongitude}
               city={city}
-              setCity={setCity}
+              onPlaceResolved={onPlaceResolved}
               isEditing={isEditing}
               userLocation={userLocation}
               getUserLocation={getUserLocation}
@@ -411,7 +411,6 @@ const AdminDashboard = () => {
         scannedBooking={scannedBooking}
       />
 
-      {/* Financial Audit Modal */}
       {showFinanceModal && (
         <div className="fixed inset-0 bg-[#0A111F]/90 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 fade-in">
           <div className="bg-white max-w-5xl w-full max-h-[90vh] overflow-hidden rounded-xl flex flex-col shadow-2xl">
@@ -426,7 +425,6 @@ const AdminDashboard = () => {
             </div>
 
             <div className="overflow-y-auto flex-1 custom-scrollbar">
-               {/* Dashboard financial summary */}
                <div className="grid grid-cols-1 md:grid-cols-4 gap-1 p-6 bg-[#F9FAFB] border-b border-[#E2E8F0]">
                   <div className="bg-white p-4 text-center border">
                     <p className="text-xs font-bold text-[#94A3B8] uppercase">System Balance</p>

@@ -63,46 +63,44 @@ function isCertChainError(error) {
 
 function verificationMailHtml(userName, verificationLink) {
   return `
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f2eee7;padding:22px 10px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f4f4f5;">
           <tr>
-            <td align="center">
-              <table role="presentation" width="620" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:620px;background:#0f1a2f;border-radius:14px;overflow:hidden;border:1px solid #1d2a45;">
+            <td align="center" style="padding:24px 12px;">
+              <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:8px;border:1px solid #e5e7eb;">
                 <tr>
-                  <td style="padding:20px 28px 14px 28px;border-bottom:1px solid #22314f;">
-                    <div style="font-family:Georgia, 'Times New Roman', serif;font-size:13px;letter-spacing:0.14em;text-transform:uppercase;color:#c9a34f;">Nepal Stays</div>
-                    <div style="font-family:Georgia, 'Times New Roman', serif;font-size:26px;line-height:1.25;color:#f3efe6;margin-top:10px;">Verify Your Email</div>
+                  <td style="padding:24px 24px 8px 24px;font-family:Arial, Helvetica, sans-serif;">
+                    <p style="margin:0;font-size:14px;font-weight:600;color:#111827;">Nepal Stays</p>
+                    <h1 style="margin:10px 0 0 0;font-size:20px;font-weight:700;color:#111827;line-height:1.35;">Verify your email</h1>
                   </td>
                 </tr>
-
                 <tr>
-                  <td style="padding:24px 28px 10px 28px;font-family:Arial, sans-serif;color:#d9e0ee;">
-                    <p style="margin:0 0 12px 0;font-size:15px;line-height:1.6;">Hello ${userName},</p>
-                    <p style="margin:0 0 18px 0;font-size:15px;line-height:1.7;">
-                      Thank you for joining Nepal Stays. Please confirm your email address to activate your account and continue.
+                  <td style="padding:8px 24px 20px 24px;font-family:Arial, Helvetica, sans-serif;color:#374151;font-size:15px;line-height:1.6;">
+                    <p style="margin:0 0 12px 0;">Hello ${userName},</p>
+                    <p style="margin:0 0 20px 0;">
+                      Thank you for joining Nepal Stays. Please confirm your email address to activate your account.
                     </p>
 
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 14px 0;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 18px 0;">
                       <tr>
-                        <td align="center" style="background:#c9a34f;border-radius:8px;">
+                        <td align="left" style="border-radius:6px;background:#2563eb;">
                           <a href="${verificationLink}" target="_blank"
-                             style="display:inline-block;padding:12px 24px;font-family:Arial,sans-serif;font-size:14px;font-weight:700;letter-spacing:.02em;color:#0f1a2f;text-decoration:none;border-radius:8px;">
-                            Verify Email
+                             style="display:inline-block;padding:12px 22px;font-family:Arial, Helvetica, sans-serif;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px;">
+                            Verify email
                           </a>
                         </td>
                       </tr>
                     </table>
 
-                    <p style="margin:0 0 10px 0;font-size:12px;color:#9fb0cd;line-height:1.6;">If the button does not work, copy and paste this link:</p>
-                    <p style="margin:0 0 18px 0;font-size:12px;line-height:1.6;word-break:break-all;">
-                      <a href="${verificationLink}" target="_blank" style="color:#8fb7ff;text-decoration:underline;">${verificationLink}</a>
+                    <p style="margin:0 0 8px 0;font-size:13px;color:#6b7280;line-height:1.5;">If the button does not work, copy and paste this link into your browser:</p>
+                    <p style="margin:0 0 16px 0;font-size:13px;line-height:1.5;word-break:break-all;">
+                      <a href="${verificationLink}" target="_blank" style="color:#2563eb;text-decoration:underline;">${verificationLink}</a>
                     </p>
 
-                    <p style="margin:0 0 2px 0;font-size:12px;color:#9fb0cd;line-height:1.6;">This link expires in 24 hours.</p>
+                    <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.5;">This link expires in 24 hours.</p>
                   </td>
                 </tr>
-
                 <tr>
-                  <td style="padding:14px 28px 20px 28px;border-top:1px solid #22314f;font-family:Arial,sans-serif;font-size:11px;color:#8ea0bf;line-height:1.7;">
+                  <td style="padding:16px 24px 20px 24px;border-top:1px solid #e5e7eb;font-family:Arial, Helvetica, sans-serif;font-size:12px;color:#6b7280;line-height:1.6;">
                     If you did not create this account, you can safely ignore this email.
                   </td>
                 </tr>
@@ -153,8 +151,7 @@ async function sendEmailReliable({ to, subject, html }) {
   }
 }
 
-// Send verification email (does not throw — check return value)
-// frontendBase: optional e.g. http://192.168.1.5:3000 (from browser) for email links
+// SMTP helpers return { success }; verification link uses frontendBase || FRONTEND_URL.
 exports.sendVerificationEmail = async (email, verificationToken, userName, frontendBase) => {
   const base = (frontendBase || process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
   const verificationLink = `${base}/verify-email?token=${verificationToken}`;
@@ -164,7 +161,6 @@ exports.sendVerificationEmail = async (email, verificationToken, userName, front
   return sendEmailReliable({ to: email, subject, html });
 };
 
-// Send welcome email
 exports.sendWelcomeEmail = async (email, userName) => {
   try {
     const mailOptions = {
@@ -203,7 +199,6 @@ exports.sendWelcomeEmail = async (email, userName) => {
   }
 };
 
-// Send password reset email
 exports.sendPasswordResetEmail = async (email, resetToken, userName, frontendBase) => {
   const base = (frontendBase || process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
   const resetLink = `${base}/reset-password?token=${resetToken}`;
@@ -267,7 +262,6 @@ exports.sendPasswordResetEmail = async (email, resetToken, userName, frontendBas
   return sendEmailReliable({ to: email, subject, html });
 };
 
-// Send set password email (for Google users)
 exports.sendSetPasswordEmail = async (email, resetToken, userName, frontendBase) => {
   try {
     const base = (frontendBase || process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
@@ -301,7 +295,6 @@ exports.sendSetPasswordEmail = async (email, resetToken, userName, frontendBase)
   }
 };
 
-// Send booking confirmation to guest
 exports.sendBookingConfirmation = async (email, details) => {
   try {
     if (!email || !String(email).trim()) {
@@ -346,7 +339,6 @@ exports.sendBookingConfirmation = async (email, details) => {
   }
 };
 
-// Send notification to hotel admin
 exports.sendAdminBookingNotification = async (hotelEmail, details) => {
   try {
     const subject = `New Booking Alert - #${details.bookingReference}`;
@@ -376,7 +368,6 @@ exports.sendAdminBookingNotification = async (hotelEmail, details) => {
   }
 };
 
-// Send Initial Booking Pending to guest
 exports.sendBookingInitiated = async (email, details) => {
   try {
     if (!email || !String(email).trim()) {
@@ -417,7 +408,6 @@ exports.sendBookingInitiated = async (email, details) => {
   }
 };
 
-// Send Initial Booking Pending to Hotel Admin
 exports.sendAdminBookingInitiated = async (hotelEmail, details) => {
   try {
     const subject = `New Reservation Received! - #${details.bookingReference}`;
@@ -445,7 +435,126 @@ exports.sendAdminBookingInitiated = async (hotelEmail, details) => {
   }
 };
 
-// Test email connection
+exports.sendRefundProcessedEmail = async (email, details) => {
+  const to = String(email || '').trim();
+  if (!to) {
+    return { success: false, reason: 'invalid_recipient' };
+  }
+  const ref = details.bookingReference || details.booking_reference || '—';
+  const hotel = details.hotelName || details.hotel_name || 'the property';
+  const amount = details.amount != null ? Number(details.amount).toLocaleString() : '—';
+  const subject = `Refund processed — Booking ${ref} · Nepal Stays`;
+  const base = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+  const html = `
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f6f4f0;">
+          <tr>
+            <td align="center" style="padding:24px 12px;">
+              <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e8e4de;">
+                <tr>
+                  <td style="background:#faf7f2;padding:22px 24px;border-bottom:2px solid #d4b06a;">
+                    <div style="font-family:Arial, Helvetica, sans-serif;">
+                      <div style="font-size:12px;letter-spacing:0.14em;color:#6b5b4f;text-transform:uppercase;font-weight:700;">Nepal Stays</div>
+                      <div style="font-size:20px;color:#1f1c1a;font-weight:800;margin-top:8px;">Your refund has been processed</div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:22px 24px;font-family:Arial, Helvetica, sans-serif;color:#2c2825;font-size:15px;line-height:1.6;">
+                    <p style="margin:0 0 12px 0;">Hi ${details.guestName || 'there'},</p>
+                    <p style="margin:0 0 16px 0;">
+                      Good news — your refund request for <strong>${hotel}</strong> has been approved and completed in our system.
+                    </p>
+                    <table role="presentation" width="100%" style="background:#faf7f2;border-radius:8px;margin:16px 0;">
+                      <tr><td style="padding:14px 16px;font-size:14px;">
+                        <p style="margin:0 0 6px 0;"><strong>Booking reference:</strong> ${ref}</p>
+                        <p style="margin:0 0 6px 0;"><strong>Refund amount:</strong> NRs. ${amount}</p>
+                      </td></tr>
+                    </table>
+                    <p style="margin:0 0 12px 0;font-size:14px;color:#4a4238;">
+                      If you paid with <strong>Khalti</strong>, the amount is returned according to Khalti’s rules (usually to your Khalti wallet). Bank or card timelines can vary.
+                    </p>
+                    <p style="margin:0 0 20px 0;font-size:14px;">
+                      You can review this booking anytime in your <a href="${base}/guest/dashboard" style="color:#b88e2f;font-weight:700;">guest dashboard</a>.
+                    </p>
+                    <p style="margin:0;font-size:13px;color:#6b5b4f;">Thank you for using Nepal Stays.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 24px;background:#f0ebe4;font-family:Arial, Helvetica, sans-serif;font-size:11px;color:#8a7d72;text-align:center;">
+                    This is an automated message regarding your refund.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      `;
+  return sendEmailReliable({ to, subject, html });
+};
+
+exports.sendRefundRejectedEmail = async (email, details) => {
+  const to = String(email || '').trim();
+  if (!to) {
+    return { success: false, reason: 'invalid_recipient' };
+  }
+  const ref = details.bookingReference || details.booking_reference || '—';
+  const hotel = details.hotelName || details.hotel_name || 'the property';
+  const esc = (s) =>
+    String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  const category = details.rejectionCategory || '—';
+  const extra = details.additionalNotes ? String(details.additionalNotes).trim() : '';
+  const subject = `Refund request update — Booking ${ref} · Nepal Stays`;
+  const base = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+  const extraBlock = extra
+    ? `<p style="margin:12px 0 0 0;font-size:14px;color:#4a4238;"><strong>Additional note:</strong> ${esc(extra)}</p>`
+    : '';
+  const html = `
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f6f4f0;">
+          <tr>
+            <td align="center" style="padding:24px 12px;">
+              <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e8e4de;">
+                <tr>
+                  <td style="background:#fef2f2;padding:22px 24px;border-bottom:2px solid #fecaca;">
+                    <div style="font-family:Arial, Helvetica, sans-serif;">
+                      <div style="font-size:12px;letter-spacing:0.14em;color:#991b1b;text-transform:uppercase;font-weight:700;">Nepal Stays</div>
+                      <div style="font-size:20px;color:#1f1c1a;font-weight:800;margin-top:8px;">Your refund request was not approved</div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:22px 24px;font-family:Arial, Helvetica, sans-serif;color:#2c2825;font-size:15px;line-height:1.6;">
+                    <p style="margin:0 0 12px 0;">Hi ${details.guestName || 'there'},</p>
+                    <p style="margin:0 0 16px 0;">
+                      We reviewed your refund request for <strong>${hotel}</strong> (reference <strong>${ref}</strong>). Unfortunately we cannot process a refund in this case.
+                    </p>
+                    <table role="presentation" width="100%" style="background:#faf7f2;border-radius:8px;margin:16px 0;border:1px solid #e8e0d4;">
+                      <tr><td style="padding:14px 16px;font-size:14px;">
+                        <p style="margin:0 0 6px 0;"><strong>Reason category:</strong> ${esc(category)}</p>
+                      </td></tr>
+                    </table>
+                    ${extraBlock}
+                    <p style="margin:16px 0 0 0;font-size:14px;">
+                      If you have questions, contact support or your hotel through your <a href="${base}/guest/dashboard" style="color:#b88e2f;font-weight:700;">guest dashboard</a>.
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 24px;background:#f0ebe4;font-family:Arial, Helvetica, sans-serif;font-size:11px;color:#8a7d72;text-align:center;">
+                    This message was sent because a refund decision was recorded on your booking.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      `;
+  return sendEmailReliable({ to, subject, html });
+};
+
 exports.testEmailConnection = async () => {
   try {
     const t = getSmtpTransporter();

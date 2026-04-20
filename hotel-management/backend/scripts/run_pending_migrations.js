@@ -1,7 +1,4 @@
-/**
- * Applies idempotent DB fixes used by this project (safe to run multiple times).
- * Loads backend/.env (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, optional DB_PORT).
- */
+// Idempotent schema patches; reads backend/.env for DB_*.
 const path = require('path');
 const mysql = require('mysql2/promise');
 
@@ -34,6 +31,23 @@ async function ensureConstraint(conn, tableName, constraintName, alterSql, okLab
     }
 }
 
+async function ensureIndex(conn, tableName, indexName, alterSql, okLabel) {
+    const [rows] = await conn.query(
+        `SELECT INDEX_NAME
+         FROM information_schema.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = ?
+           AND INDEX_NAME = ?`,
+        [tableName, indexName]
+    );
+    if (rows.length === 0) {
+        await conn.query(alterSql);
+        console.log(`OK: ${okLabel}`);
+    } else {
+        console.log(`Skip: ${okLabel} already present`);
+    }
+}
+
 async function main() {
     const config = {
         host: process.env.DB_HOST || 'localhost',
@@ -55,7 +69,6 @@ async function main() {
     }
 
     try {
-        // --- 002: booking_guest_details ---
         await conn.query(`
             CREATE TABLE IF NOT EXISTS booking_guest_details (
               booking_id INT NOT NULL PRIMARY KEY,
@@ -69,7 +82,6 @@ async function main() {
         `);
         console.log('OK: booking_guest_details table exists');
 
-        // --- 003: users.profile_image ---
         await ensureColumn(
             conn,
             'users',
@@ -78,7 +90,6 @@ async function main() {
             'users.profile_image'
         );
 
-        // --- 004: bookings lifecycle metadata ---
         await ensureColumn(
             conn,
             'bookings',
@@ -110,6 +121,13 @@ async function main() {
         await ensureColumn(
             conn,
             'bookings',
+            'cancelled_at',
+            'ALTER TABLE bookings ADD COLUMN cancelled_at TIMESTAMP NULL AFTER checked_out_at',
+            'bookings.cancelled_at'
+        );
+        await ensureColumn(
+            conn,
+            'bookings',
             'cancelled_by',
             'ALTER TABLE bookings ADD COLUMN cancelled_by INT NULL AFTER cancelled_at',
             'bookings.cancelled_by'
@@ -134,7 +152,6 @@ async function main() {
             'bookings.fk_bookings_cancelled_by'
         );
 
-        // --- 005: role-aware notifications ---
         await conn.query(`
             CREATE TABLE IF NOT EXISTS notifications (
               id INT AUTO_INCREMENT PRIMARY KEY,
@@ -183,7 +200,6 @@ async function main() {
             console.log(`Skip: notifications.user_id nullable change (${e.message})`);
         }
 
-        // --- 006: offers and mapping ---
         await conn.query(`
             CREATE TABLE IF NOT EXISTS offers (
               id INT AUTO_INCREMENT PRIMARY KEY,
@@ -244,7 +260,6 @@ async function main() {
         `);
         console.log('OK: notification_jobs table exists');
 
-        // --- 007: chatbot persistence ---
         await conn.query(`
             CREATE TABLE IF NOT EXISTS chat_sessions (
               id INT AUTO_INCREMENT PRIMARY KEY,
@@ -295,7 +310,6 @@ async function main() {
         `);
         console.log('OK: chat_feedback table exists');
 
-        // --- 008: status history tables ---
         await conn.query(`
             CREATE TABLE IF NOT EXISTS booking_status_history (
               id INT AUTO_INCREMENT PRIMARY KEY,
@@ -331,7 +345,22 @@ async function main() {
         `);
         console.log('OK: room_status_history table exists');
 
-        // --- 009: payout transaction ledger ---
+        await conn.query(`
+            CREATE TABLE IF NOT EXISTS hotel_payout_requests (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              hotel_id INT NOT NULL,
+              amount DECIMAL(10,2) NOT NULL,
+              notes TEXT,
+              status ENUM('pending', 'completed', 'rejected') DEFAULT 'pending',
+              admin_notes TEXT,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              CONSTRAINT fk_payout_hotel FOREIGN KEY (hotel_id) REFERENCES hotels(id) ON DELETE CASCADE,
+              INDEX idx_payout_status (status)
+            )
+        `);
+        console.log('OK: hotel_payout_requests table exists');
+
         await conn.query(`
             CREATE TABLE IF NOT EXISTS hotel_payout_transactions (
               id INT AUTO_INCREMENT PRIMARY KEY,
@@ -352,6 +381,37 @@ async function main() {
             )
         `);
         console.log('OK: hotel_payout_transactions table exists');
+
+        await ensureColumn(
+            conn,
+            'hotels',
+            'listing_contract_accepted',
+            'ALTER TABLE hotels ADD COLUMN listing_contract_accepted TINYINT(1) NOT NULL DEFAULT 0 AFTER owner_id',
+            'hotels.listing_contract_accepted'
+        );
+        await ensureColumn(
+            conn,
+            'hotels',
+            'listing_contract_accepted_at',
+            'ALTER TABLE hotels ADD COLUMN listing_contract_accepted_at DATETIME NULL AFTER listing_contract_accepted',
+            'hotels.listing_contract_accepted_at'
+        );
+
+        await ensureColumn(
+            conn,
+            'refund_requests',
+            'rejection_category',
+            'ALTER TABLE refund_requests ADD COLUMN rejection_category VARCHAR(255) NULL AFTER admin_notes',
+            'refund_requests.rejection_category'
+        );
+
+        await ensureIndex(
+            conn,
+            'room_types',
+            'idx_room_types_hotel_price',
+            'ALTER TABLE room_types ADD INDEX idx_room_types_hotel_price (hotel_id, base_price)',
+            'room_types.idx_room_types_hotel_price'
+        );
 
         console.log('Migrations check finished.');
     } catch (e) {

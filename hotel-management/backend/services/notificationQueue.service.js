@@ -21,6 +21,8 @@ const processQueue = async () => {
         await notificationRepository.markJobFailed(job.id, error.message, retryAfter);
       }
     }
+  } catch (e) {
+    console.warn('[notification-worker]', e.message);
   } finally {
     busy = false;
   }
