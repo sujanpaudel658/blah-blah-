@@ -2,13 +2,11 @@ const bcrypt = require('bcrypt');
 const db = require('../config/db');
 const notificationEvents = require('../services/notificationEvents.service');
 
-// Helper for consistent error responses
 const handleError = (res, error, message) => {
   console.error(`${message}:`, error.message);
   res.status(500).json({ success: false, message });
 };
 
-// Get all hotels
 exports.getAllHotels = async (req, res) => {
   try {
     const [hotels] = await db.query('SELECT * FROM hotels ORDER BY created_at DESC');
@@ -18,7 +16,6 @@ exports.getAllHotels = async (req, res) => {
   }
 };
 
-// Create new hotel with admin
 exports.createHotel = async (req, res) => {
   try {
     const { name, address, city, country, phone, email, description, image, latitude, longitude, adminName, adminEmail, adminPassword } = req.body;
@@ -30,7 +27,6 @@ exports.createHotel = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Admin name, email, and password are required' });
     }
 
-    // Create hotel
     const [result] = await db.query(
       'INSERT INTO hotels (name, address, city, country, phone, email, description, image, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
@@ -48,14 +44,12 @@ exports.createHotel = async (req, res) => {
     );
     const hotelId = result.insertId;
 
-    // Hash password and handle admin user
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
     const [existingUsers] = await db.query('SELECT id FROM users WHERE email = ?', [adminEmail]);
 
     let adminId, adminPromoted = false;
 
     if (existingUsers.length > 0) {
-      // Promote existing user to admin
       adminId = existingUsers[0].id;
       adminPromoted = true;
       await db.query(
@@ -63,7 +57,6 @@ exports.createHotel = async (req, res) => {
         ['admin', hotelId, hashedPassword, adminId]
       );
     } else {
-      // Create new admin user
       const [adminResult] = await db.query(
         'INSERT INTO users (full_name, email, password, role, hotel_id) VALUES (?, ?, ?, ?, ?)',
         [adminName, adminEmail, hashedPassword, 'admin', hotelId]
@@ -94,7 +87,6 @@ exports.createHotel = async (req, res) => {
   }
 };
 
-// Update hotel
 exports.updateHotel = async (req, res) => {
   try {
     const { id } = req.params;
@@ -135,7 +127,6 @@ exports.updateHotel = async (req, res) => {
   }
 };
 
-// Get all admins
 exports.getAllAdmins = async (req, res) => {
   try {
     const [admins] = await db.query(
@@ -149,7 +140,62 @@ exports.getAllAdmins = async (req, res) => {
   }
 };
 
-// Create new admin
+exports.getHotelDetail = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid hotel ID' });
+    }
+    const [hotels] = await db.query('SELECT * FROM hotels WHERE id = ?', [id]);
+    if (hotels.length === 0) {
+      return res.status(404).json({ success: false, message: 'Hotel not found' });
+    }
+    const [admins] = await db.query(
+      `SELECT id, full_name, email, phone, created_at FROM users WHERE hotel_id = ? AND role = 'admin' ORDER BY id ASC`,
+      [id]
+    );
+    res.json({ success: true, hotel: hotels[0], admins });
+  } catch (error) {
+    handleError(res, error, 'Failed to fetch hotel');
+  }
+};
+
+exports.patchAdminEmail = async (req, res) => {
+  try {
+    const adminId = Number(req.params.id);
+    if (!Number.isFinite(adminId)) {
+      return res.status(400).json({ success: false, message: 'Invalid admin ID' });
+    }
+    const email = (req.body.email || '').trim();
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    const [users] = await db.query('SELECT id, role FROM users WHERE id = ?', [adminId]);
+    if (users.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    if (users[0].role !== 'admin') {
+      return res.status(400).json({ success: false, message: 'Only hotel manager accounts can be updated here' });
+    }
+
+    const [dup] = await db.query('SELECT id FROM users WHERE email = ? AND id != ?', [email, adminId]);
+    if (dup.length > 0) {
+      return res.status(400).json({ success: false, message: 'That email is already in use' });
+    }
+
+    await db.query('UPDATE users SET email = ? WHERE id = ?', [email, adminId]);
+    const [updated] = await db.query(
+      `SELECT u.id, u.full_name, u.email, u.phone, u.hotel_id, u.created_at, h.name as hotel_name
+       FROM users u LEFT JOIN hotels h ON u.hotel_id = h.id WHERE u.id = ?`,
+      [adminId]
+    );
+    res.json({ success: true, message: 'Login email updated', admin: updated[0] });
+  } catch (error) {
+    handleError(res, error, 'Failed to update email');
+  }
+};
+
 exports.createAdmin = async (req, res) => {
   try {
     const { fullName, email, phone, password, hotelId } = req.body;
@@ -191,7 +237,6 @@ exports.createAdmin = async (req, res) => {
   }
 };
 
-// Get all guests
 exports.getAllGuests = async (req, res) => {
   try {
     const [guests] = await db.query(
@@ -203,7 +248,6 @@ exports.getAllGuests = async (req, res) => {
   }
 };
 
-// Get pending hotel requests
 exports.getPendingHotels = async (req, res) => {
   try {
     const [hotels] = await db.query(
@@ -219,7 +263,6 @@ exports.getPendingHotels = async (req, res) => {
   }
 };
 
-// Verify hotel and promote owner to admin
 exports.verifyHotel = async (req, res) => {
   const connection = await db.getConnection();
   try {
@@ -227,7 +270,6 @@ exports.verifyHotel = async (req, res) => {
 
     const { id } = req.params;
 
-    // 1. Get hotel and owner details
     const [hotels] = await connection.query('SELECT * FROM hotels WHERE id = ?', [id]);
     if (hotels.length === 0) {
       await connection.rollback();
@@ -239,16 +281,16 @@ exports.verifyHotel = async (req, res) => {
       await connection.rollback();
       return res.status(400).json({ success: false, message: 'Hotel is already verified' });
     }
+    if (hotel.status === 'rejected') {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: 'This hotel request was rejected' });
+    }
 
-    // 2. Update hotel status
     await connection.query('UPDATE hotels SET status = "verified" WHERE id = ?', [id]);
 
-    // 3. Promote owner to admin if owner_id exists
     if (hotel.owner_id) {
       const [users] = await connection.query('SELECT * FROM users WHERE id = ?', [hotel.owner_id]);
       if (users.length > 0) {
-        // Only promote if not already superadmin/admin (though presumably they are guest)
-        // Also associate them with this hotel
         await connection.query(
           'UPDATE users SET role = "admin", hotel_id = ? WHERE id = ?',
           [id, hotel.owner_id]
@@ -262,7 +304,6 @@ exports.verifyHotel = async (req, res) => {
 
     await connection.commit();
 
-    // Fetch updated data to return
     const [updatedHotel] = await db.query('SELECT * FROM hotels WHERE id = ?', [id]);
 
     res.json({
@@ -279,7 +320,59 @@ exports.verifyHotel = async (req, res) => {
   }
 };
 
-// Get system-wide analytics for superadmin dashboard
+exports.getPendingHotelDetail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [hotels] = await db.query(
+      `SELECT h.*, u.full_name as owner_name, u.email as owner_email, u.phone as owner_phone
+       FROM hotels h
+       LEFT JOIN users u ON h.owner_id = u.id
+       WHERE h.id = ? AND h.status = 'pending'`,
+      [id]
+    );
+    if (hotels.length === 0) {
+      return res.status(404).json({ success: false, message: 'Pending hotel not found' });
+    }
+    const hotel = hotels[0];
+    const [roomTypes] = await db.query(
+      'SELECT id, name, description, base_price, max_occupancy FROM room_types WHERE hotel_id = ? ORDER BY id',
+      [id]
+    );
+    const [rooms] = await db.query(
+      `SELECT r.id, r.room_number, r.floor, r.status, r.room_type_id, t.name AS type_name
+       FROM rooms r
+       JOIN room_types t ON r.room_type_id = t.id
+       WHERE r.hotel_id = ?
+       ORDER BY r.room_number`,
+      [id]
+    );
+    res.json({
+      success: true,
+      hotel,
+      roomTypes,
+      rooms
+    });
+  } catch (error) {
+    handleError(res, error, 'Failed to fetch pending hotel detail');
+  }
+};
+
+exports.deletePendingHotel = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [result] = await db.query('DELETE FROM hotels WHERE id = ? AND status = ?', [id, 'pending']);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pending hotel not found or already processed'
+      });
+    }
+    res.json({ success: true, message: 'Pending hotel request removed' });
+  } catch (error) {
+    handleError(res, error, 'Failed to delete pending hotel');
+  }
+};
+
 exports.getSystemAnalytics = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -295,7 +388,6 @@ exports.getSystemAnalytics = async (req, res) => {
       paramsJoin.push(startDate, endDate);
     }
 
-    // 1. Overall booking stats
     const [bookingStats] = await db.query(`
       SELECT 
         COUNT(*) as total_bookings,
@@ -305,19 +397,28 @@ exports.getSystemAnalytics = async (req, res) => {
         SUM(CASE WHEN status = 'checked_out' THEN 1 ELSE 0 END) as checked_out,
         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
         SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END) as total_revenue,
-        SUM(CASE WHEN payment_status = 'paid' THEN commission_amount ELSE 0 END) as total_commission,
+        SUM(
+          CASE WHEN payment_status = 'paid'
+            THEN COALESCE(NULLIF(commission_amount, 0), ROUND(total_amount * 0.10, 2))
+            ELSE 0
+          END
+        ) as total_commission,
         SUM(CASE WHEN payment_status = 'refunded' THEN total_amount ELSE 0 END) as total_refunded,
         SUM(total_amount) as gross_total
       FROM bookings${dateFilter}
     `, params);
 
-    // 2. Per-hotel revenue breakdown
     const [hotelRevenue] = await db.query(`
       SELECT 
         h.id, h.name, h.city, h.balance,
         COUNT(b.id) as total_bookings,
         SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_amount ELSE 0 END) as revenue,
-        SUM(CASE WHEN b.payment_status = 'paid' THEN b.commission_amount ELSE 0 END) as commission,
+        SUM(
+          CASE WHEN b.payment_status = 'paid'
+            THEN COALESCE(NULLIF(b.commission_amount, 0), ROUND(b.total_amount * 0.10, 2))
+            ELSE 0
+          END
+        ) as commission,
         SUM(CASE WHEN b.status = 'confirmed' OR b.status = 'checked_in' THEN 1 ELSE 0 END) as active_bookings
       FROM hotels h
       LEFT JOIN bookings b ON h.id = b.hotel_id${dateFilterJoin}
@@ -325,7 +426,6 @@ exports.getSystemAnalytics = async (req, res) => {
       ORDER BY revenue DESC
     `, paramsJoin);
 
-    // 3. Monthly revenue trend
     const trendFilter = (startDate && endDate)
       ? ' WHERE created_at >= ? AND created_at <= DATE_ADD(?, INTERVAL 1 DAY)'
       : ' WHERE created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)';
@@ -336,13 +436,17 @@ exports.getSystemAnalytics = async (req, res) => {
         DATE_FORMAT(created_at, '%Y-%m') as month,
         COUNT(*) as bookings,
         SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END) as revenue,
-        SUM(CASE WHEN payment_status = 'paid' THEN commission_amount ELSE 0 END) as commission
+        SUM(
+          CASE WHEN payment_status = 'paid'
+            THEN COALESCE(NULLIF(commission_amount, 0), ROUND(total_amount * 0.10, 2))
+            ELSE 0
+          END
+        ) as commission
       FROM bookings${trendFilter}
       GROUP BY DATE_FORMAT(created_at, '%Y-%m')
       ORDER BY month ASC
     `, trendParams);
 
-    // 4. Recent bookings
     const recentFilter = (startDate && endDate)
       ? ' WHERE b.created_at >= ? AND b.created_at <= DATE_ADD(?, INTERVAL 1 DAY)'
       : '';
@@ -374,7 +478,6 @@ exports.getSystemAnalytics = async (req, res) => {
   }
 };
 
-// Get all transaction/payment logs
 exports.getTransactionLogs = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -421,7 +524,6 @@ exports.getTransactionLogs = async (req, res) => {
       LIMIT 200
     `, params);
 
-    // Summary counts (also filtered)
     const [summary] = await db.query(`
       SELECT 
         COUNT(p.id) as total,
@@ -429,7 +531,12 @@ exports.getTransactionLogs = async (req, res) => {
         SUM(CASE WHEN p.status = 'pending' THEN 1 ELSE 0 END) as pending,
         SUM(CASE WHEN p.status = 'refunded' THEN 1 ELSE 0 END) as refunded,
         SUM(CASE WHEN p.status = 'completed' THEN p.amount ELSE 0 END) as total_collected,
-        SUM(CASE WHEN p.status = 'completed' THEN b.commission_amount ELSE 0 END) as total_commission,
+        SUM(
+          CASE WHEN p.status = 'completed'
+            THEN COALESCE(NULLIF(b.commission_amount, 0), ROUND(b.total_amount * 0.10, 2))
+            ELSE 0
+          END
+        ) as total_commission,
         SUM(CASE WHEN p.status = 'refunded' THEN p.amount ELSE 0 END) as total_refunded
       FROM payments p
       JOIN bookings b ON p.booking_id = b.id
@@ -446,7 +553,6 @@ exports.getTransactionLogs = async (req, res) => {
   }
 };
 
-// Get full system report data for PDF generation
 exports.getSystemReport = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -474,7 +580,12 @@ exports.getSystemReport = async (req, res) => {
       SELECT 
         COUNT(*) as total_bookings,
         SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END) as total_revenue,
-        SUM(CASE WHEN payment_status = 'paid' THEN commission_amount ELSE 0 END) as total_commission,
+        SUM(
+          CASE WHEN payment_status = 'paid'
+            THEN COALESCE(NULLIF(commission_amount, 0), ROUND(total_amount * 0.10, 2))
+            ELSE 0
+          END
+        ) as total_commission,
         SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
         SUM(CASE WHEN status = 'checked_out' THEN 1 ELSE 0 END) as completed
@@ -486,7 +597,12 @@ exports.getSystemReport = async (req, res) => {
         h.name, h.city,
         COUNT(b.id) as bookings,
         SUM(CASE WHEN b.payment_status = 'paid' THEN b.total_amount ELSE 0 END) as revenue,
-        SUM(CASE WHEN b.payment_status = 'paid' THEN b.commission_amount ELSE 0 END) as commission
+        SUM(
+          CASE WHEN b.payment_status = 'paid'
+            THEN COALESCE(NULLIF(b.commission_amount, 0), ROUND(b.total_amount * 0.10, 2))
+            ELSE 0
+          END
+        ) as commission
       FROM hotels h
       LEFT JOIN bookings b ON h.id = b.hotel_id${dateFilterJoin}
       GROUP BY h.id
