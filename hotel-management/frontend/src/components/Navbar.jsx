@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_URL } from '../config/api';
 import { getImageUrl } from '../utils/helpers';
+import GuestNotificationBell from './GuestNotificationBell';
 
 const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSearch, hotelSuggestions = [] }) => {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -18,14 +19,20 @@ const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSear
     }
   };
 
+  const filterHotels = (q) => {
+    const needle = (q || '').trim().toLowerCase();
+    if (!needle) return hotelSuggestions;
+    return hotelSuggestions.filter(
+      (h) =>
+        h.title?.toLowerCase().includes(needle) ||
+        h.city?.toLowerCase().includes(needle) ||
+        h.address?.toLowerCase().includes(needle)
+    );
+  };
+
   const handleInputChange = (e) => {
     setInputValue(e.target.value);
-    if (onSearch) {
-      const filtered = e.target.value
-        ? hotelSuggestions.filter(h => h.title?.toLowerCase().startsWith(e.target.value.toLowerCase()))
-        : hotelSuggestions;
-      onSearch(filtered);
-    }
+    if (onSearch) onSearch(filterHotels(e.target.value));
     setShowDropdown(!!e.target.value);
   };
 
@@ -36,15 +43,12 @@ const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSear
     if (inputRef.current) inputRef.current.blur();
   };
 
-  const filteredSuggestions = inputValue
-    ? hotelSuggestions.filter(h => h.title?.toLowerCase().startsWith(inputValue.toLowerCase()))
-    : [];
+  const filteredSuggestions = filterHotels(inputValue);
 
   return (
     <nav className="sticky top-0 z-50 w-full bg-white border-b border-[#E8E4DE] h-[92px]">
       <div className="max-w-7xl mx-auto px-6 h-full">
         <div className="flex items-center justify-between h-full">
-          {/* Brand */}
           <div className="flex items-center gap-2.5 cursor-pointer" onClick={handleLogoClick}>
             <div className="h-16 w-44 overflow-hidden flex items-center">
               <img
@@ -55,7 +59,6 @@ const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSear
             </div>
           </div>
 
-          {/* Center: Search */}
           <div className="hidden md:flex items-center gap-8">
             <div className="relative">
               <div className="flex items-center bg-[#F4F3F0] border border-[#E8E4DE] px-4 rounded-lg focus-within:border-[#C4993E] focus-within:ring-2 focus-within:ring-[#C4993E]/15 transition-all">
@@ -71,7 +74,6 @@ const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSear
                 />
               </div>
 
-              {/* Suggestions Dropdown */}
               {showDropdown && filteredSuggestions.length > 0 && (
                 <div className="absolute left-0 right-0 mt-2 bg-white border border-[#E8E4DE] shadow-lg z-50 overflow-hidden rounded-xl w-80">
                   <div className="px-4 py-2.5 bg-[#FAF8F5] border-b border-[#E8E4DE]">
@@ -106,8 +108,8 @@ const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSear
             </div>
           </div>
 
-          {/* Right: User Info */}
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-3 sm:gap-5">
+            {user && !['admin', 'superadmin'].includes(user.role) && <GuestNotificationBell />}
             {user && (
               <div className="hidden sm:flex items-center gap-3">
                 {user.profileImage ? (

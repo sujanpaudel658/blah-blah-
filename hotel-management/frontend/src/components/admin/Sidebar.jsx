@@ -40,7 +40,6 @@ const Sidebar = ({ onLogout, user }) => {
 
     return (
         <aside className="w-[240px] bg-[#1A2332] text-[#8896A6] flex flex-col h-screen sticky top-0 shrink-0 select-none">
-            {/* Logo */}
             <div className="h-[92px] flex items-center px-6 border-b border-[#263345]">
                 <Link to={user?.role === 'superadmin' ? "/superadmin/dashboard" : "/admin/dashboard"} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
                     <div className="h-14 w-40 overflow-hidden flex items-center">
@@ -53,7 +52,6 @@ const Sidebar = ({ onLogout, user }) => {
                 </Link>
             </div>
 
-            {/* Navigation */}
             <div className="flex-1 py-6 overflow-y-auto custom-scrollbar">
                 {menuSections.map((section, idx) => (
                     <div key={idx} className="mb-6">
@@ -86,7 +84,6 @@ const Sidebar = ({ onLogout, user }) => {
                 ))}
             </div>
 
-            {/* Bottom: Logout */}
             <div className="p-4 border-t border-[#263345]">
                 <button
                     onClick={onLogout}

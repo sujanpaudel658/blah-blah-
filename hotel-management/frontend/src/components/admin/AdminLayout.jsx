@@ -8,7 +8,6 @@ const AdminLayout = ({ children, user, hotel, onLogout, title, subtitle }) => {
             <Sidebar onLogout={onLogout} user={user} />
 
             <main className="flex-1 overflow-y-auto">
-                {/* Top Header */}
                 <header className="h-[72px] bg-white border-b border-[#E8E4DE] px-8 flex items-center justify-between sticky top-0 z-50">
                     <div className="flex flex-col">
                         <span className="text-[11px] font-medium text-[#6B7B8D] leading-none mb-1">
@@ -20,7 +19,6 @@ const AdminLayout = ({ children, user, hotel, onLogout, title, subtitle }) => {
                     </div>
 
                     <div className="flex items-center gap-5">
-                        {/* Notifications */}
                         <div className="hidden lg:flex items-center gap-1 pr-5 border-r border-[#E8E4DE]">
                             <button className="w-9 h-9 flex items-center justify-center text-[#6B7B8D] hover:text-[#1A2332] hover:bg-[#F4F3F0] rounded-lg transition-all relative">
                                 <span className="material-symbols-outlined text-[20px]">notifications</span>
@@ -51,7 +49,6 @@ const AdminLayout = ({ children, user, hotel, onLogout, title, subtitle }) => {
                     </div>
                 </header>
 
-                {/* Content Area */}
                 <div className="p-8 max-w-[1440px] mx-auto fade-in">
                     {children}
                 </div>

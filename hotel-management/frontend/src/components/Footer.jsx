@@ -11,7 +11,6 @@ const Footer = () => {
       <div className="max-w-7xl mx-auto px-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
           
-          {/* Brand & About */}
           <div className="space-y-6">
             <div className="flex items-center gap-2.5">
               <div className="h-16 w-44 overflow-hidden flex items-center">
@@ -27,7 +26,6 @@ const Footer = () => {
             </p>
           </div>
 
-          {/* Site Navigation */}
           <div className="space-y-6">
             <h4 className="text-[14px] font-bold uppercase tracking-[0.2em] text-white">Explore</h4>
             <ul className="space-y-3">
@@ -38,7 +36,6 @@ const Footer = () => {
             </ul>
           </div>
 
-          {/* Find Us / Contact */}
           <div className="space-y-6">
             <h4 className="text-[14px] font-bold uppercase tracking-[0.2em] text-white">Find Us</h4>
             <div className="space-y-4">
@@ -59,7 +56,6 @@ const Footer = () => {
             </div>
           </div>
 
-          {/* Socials & Legal */}
           <div className="space-y-6">
             <h4 className="text-[14px] font-bold uppercase tracking-[0.2em] text-white">Connect</h4>
             <div className="flex gap-4">
@@ -81,7 +77,6 @@ const Footer = () => {
 
         </div>
 
-        {/* Bottom Bar */}
         <div className="pt-8 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-[12px] text-[#596A7D]">
             &copy; 2024 StayNepal Integrated Portal. All rights reserved.

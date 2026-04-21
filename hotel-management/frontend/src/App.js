@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
+import SuperAdminAudits from './pages/SuperAdminAudits';
 import AdminDashboard from './pages/AdminDashboard';
 import UserDashboard from './pages/UserDashboard';
 import RoomManagement from './pages/RoomManagement';
@@ -15,11 +16,12 @@ import Settings from './pages/Settings';
 import GuestProfile from './pages/GuestProfile';
 import TermsAndConditions from './pages/TermsAndConditions';
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import ListYourHotelPage from './pages/ListYourHotelPage';
+import SubmitHotelPage from './pages/SubmitHotelPage';
 import ChatBot from './components/ChatBot';
 
 import Bookings from './pages/Bookings';
 
-// Root Redirect Handler: Resolves where to send a user based on their session status
 const RootRedirect = () => {
     const userData = localStorage.getItem('user');
     if (!userData) return <Home />;
@@ -39,17 +41,18 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<RootRedirect />} />
-        {/* ... existing routes ... */}
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/superadmin/dashboard" element={<SuperAdminDashboard />} />
         <Route path="/superadmin/registry" element={<SuperAdminDashboard />} />
-        <Route path="/superadmin/audits" element={<SuperAdminDashboard />} />
-        <Route path="/superadmin/settings" element={<SuperAdminDashboard />} />
+        <Route path="/superadmin/audits" element={<SuperAdminAudits />} />
+        <Route path="/superadmin/settings" element={<Settings />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/admin/bookings" element={<Bookings />} />
         <Route path="/guest/dashboard" element={<UserDashboard />} />
+        <Route path="/guest/list-your-hotel" element={<ListYourHotelPage />} />
+        <Route path="/guest/submit-hotel" element={<SubmitHotelPage />} />
         <Route path="/guest/profile" element={<GuestProfile />} />
         <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />

@@ -14,7 +14,8 @@
   --gold-hover:   #AE872E;
   --gold-muted:   #D4B06A;
   --charcoal:     #2C3E50;
-  --warm-gray:    #6B7B8D;
+  --warm-gray:    #6b5b4f;
+  --label-muted:  #5a4f45;
   --light-gray:   #D8D4CE;
   --border:       #E8E4DE;
   --white:        #FFFFFF;
@@ -85,7 +86,7 @@ body {
 .admin-label {
   font-size: 11px;
   font-weight: 600;
-  color: var(--warm-gray);
+  color: var(--label-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-bottom: 6px;
@@ -125,14 +126,14 @@ body {
 }
 
 .admin-button-primary {
-  background-color: var(--navy);
+  background: linear-gradient(180deg, #c9a44a 0%, #b88e2f 100%);
   color: var(--white);
   border: none;
 }
 
 .admin-button-primary:hover {
-  background-color: var(--navy-light);
-  box-shadow: 0 4px 12px rgba(26, 35, 50, 0.15);
+  background: linear-gradient(180deg, #b8943f 0%, #9e7a28 100%);
+  box-shadow: 0 4px 14px rgba(184, 142, 47, 0.35);
 }
 
 .admin-button-secondary {

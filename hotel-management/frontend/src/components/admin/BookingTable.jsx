@@ -14,9 +14,7 @@ const BookingTable = ({
 
     const tabs = ['All', 'Confirmed', 'Pending', 'Checked-In', 'Checked-Out'];
 
-    // Filtering logic for bookings list
     const filteredBookings = (bookings || []).filter(b => {
-        // 1. Category Filter Phase
         const isAll = activeTab === 'All';
         const matchesTab = isAll ||
             (activeTab === 'Confirmed' && b?.status === 'confirmed') ||
@@ -24,8 +22,6 @@ const BookingTable = ({
             (activeTab === 'Checked-In' && b?.status === 'checked_in') ||
             (activeTab === 'Checked-Out' && b?.status === 'checked_out');
 
-        // 2. Global Search Phase
-        // Standardize to lowercase to ensure case-insensitive matching across browser platforms
         const searchRaw = searchQuery?.toLowerCase() || '';
         const guestName = b?.guest_name?.toLowerCase() || '';
         const bookingRef = b?.booking_reference?.toLowerCase() || '';
@@ -35,9 +31,6 @@ const BookingTable = ({
         return matchesTab && matchesSearch;
     });
 
-    /**
-     * Map booking status to status colors.
-     */
     const getStatusStyle = (status) => {
         switch (status) {
             case 'confirmed': return 'bg-[#E7F3ED] text-[#108548]';
@@ -49,9 +42,40 @@ const BookingTable = ({
         }
     };
 
+    const getPaymentBadge = (booking) => {
+        const paymentStatus = String(booking?.payment_status || '').toLowerCase();
+        const bookingStatus = String(booking?.status || '').toLowerCase();
+
+        // Cancelled unpaid bookings should not look like "payment pending action".
+        if (bookingStatus === 'cancelled' && paymentStatus === 'pending') {
+            return {
+                label: 'unpaid',
+                className: 'bg-[#F1F5F9] text-[#475569]'
+            };
+        }
+
+        if (paymentStatus === 'paid') {
+            return {
+                label: 'paid',
+                className: 'bg-[#E7F3ED] text-[#108548]'
+            };
+        }
+
+        if (paymentStatus === 'refunded') {
+            return {
+                label: 'refunded',
+                className: 'bg-[#FEE2E2] text-[#B91C1C]'
+            };
+        }
+
+        return {
+            label: paymentStatus || 'pending',
+            className: 'bg-[#FFF8E6] text-[#A36B00]'
+        };
+    };
+
     return (
         <div className="admin-card overflow-hidden bg-white">
-            {/* Table Toolbar */}
             <div className="p-5 border-b border-[#F1F1F1] flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex gap-1 border-b md:border-none overflow-x-auto no-scrollbar">
                     {tabs.map(tab => (
@@ -93,7 +117,6 @@ const BookingTable = ({
                 </div>
             </div>
 
-            {/* Table Area */}
             <div className="admin-table-container border-none rounded-none overflow-x-auto">
                 <table className="admin-table">
                     <thead>
@@ -107,7 +130,9 @@ const BookingTable = ({
                     </thead>
                     <tbody>
                         {filteredBookings.length > 0 ? (
-                            filteredBookings.map((booking) => (
+                            filteredBookings.map((booking) => {
+                                const paymentBadge = getPaymentBadge(booking);
+                                return (
                                 <tr key={booking.id}>
                                     <td>
                                         <div className="font-bold text-[#1B2B41]">{booking.guest_name}</div>
@@ -134,8 +159,8 @@ const BookingTable = ({
                                             <span className={`status-badge ${getStatusStyle(booking.status)}`}>
                                                 {(booking.status || '').replace('_', ' ')}
                                             </span>
-                                            <span className={`status-badge ${booking.payment_status === 'paid' ? 'bg-[#E7F3ED] text-[#108548]' : 'bg-[#FFF8E6] text-[#A36B00]'}`}>
-                                                {booking.payment_status}
+                                            <span className={`status-badge ${paymentBadge.className}`}>
+                                                {paymentBadge.label}
                                             </span>
                                         </div>
                                     </td>
@@ -198,7 +223,7 @@ const BookingTable = ({
                                         </div>
                                     </td>
                                 </tr>
-                            ))
+                            )})
                         ) : (
                             <tr>
                                 <td colSpan="5" className="px-6 py-12 text-center text-[#94A3B8] italic font-medium">

@@ -44,7 +44,6 @@ const QRScanner = ({ isOpen, onClose, onScanSuccess, scannedBooking }) => {
     return (
         <div className="fixed inset-0 z-[9999] bg-[#111B2B]/80 flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-lg rounded-sm overflow-hidden shadow-xl border border-[#E2E2E2] fade-in">
-                {/* Modal Header */}
                 <div className="bg-[#1B2B41] px-6 py-4 flex items-center justify-between text-white">
                     <div>
                         <h3 className="text-base font-bold uppercase tracking-widest">Authentication Terminal</h3>

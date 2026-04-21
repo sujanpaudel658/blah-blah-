@@ -21,7 +21,6 @@ const HotelProfile = ({
 
     return (
         <div className="admin-card bg-white overflow-hidden">
-            {/* Component Header */}
             <div className="p-6 border-b border-[#F1F1F1] flex items-center justify-between">
                 <div>
                     <span className="admin-label">Hotel Management</span>
@@ -37,7 +36,6 @@ const HotelProfile = ({
             </div>
 
             <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-10">
-                {/* Image Section */}
                 <div className="space-y-6">
                     <div>
                         <span className="admin-label">Visual Gallery</span>
@@ -85,7 +83,6 @@ const HotelProfile = ({
                     </div>
                 </div>
 
-                {/* Information Section */}
                 <div className="space-y-6">
                     <div className="form-group">
                         <label className="admin-label">Hotel Name</label>

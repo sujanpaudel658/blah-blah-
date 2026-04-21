@@ -3,8 +3,7 @@ import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-lea
 import L from 'leaflet';
 import 'leaflet-routing-machine';
 
-// Component to handle map clicks and draggability
-const LocationMarker = ({ isEditing, setLatitude, setLongitude, latitude, longitude, updateCityFromCoords }) => {
+const LocationMarker = ({ isEditing, setLatitude, setLongitude, latitude, longitude, updatePlaceFromCoords }) => {
     const markerRef = React.useRef(null);
 
     const eventHandlers = React.useMemo(
@@ -15,11 +14,11 @@ const LocationMarker = ({ isEditing, setLatitude, setLongitude, latitude, longit
                     const latLng = marker.getLatLng();
                     setLatitude(latLng.lat);
                     setLongitude(latLng.lng);
-                    updateCityFromCoords(latLng.lat, latLng.lng);
+                    updatePlaceFromCoords(latLng.lat, latLng.lng);
                 }
             },
         }),
-        [setLatitude, setLongitude, updateCityFromCoords]
+        [setLatitude, setLongitude, updatePlaceFromCoords]
     );
 
     useMapEvents({
@@ -27,7 +26,7 @@ const LocationMarker = ({ isEditing, setLatitude, setLongitude, latitude, longit
             if (!isEditing) return;
             setLatitude(e.latlng.lat);
             setLongitude(e.latlng.lng);
-            updateCityFromCoords(e.latlng.lat, e.latlng.lng);
+            updatePlaceFromCoords(e.latlng.lat, e.latlng.lng);
         },
     });
 
@@ -57,29 +56,46 @@ const MapSection = ({
     longitude,
     setLongitude,
     city,
-    setCity,
+    onPlaceResolved,
     isEditing,
     userLocation,
     getUserLocation,
     showDirections
 }) => {
-    // Reverse Geocoding: Coordinate -> City Name
-    const updateCityFromCoords = async (lat, lon) => {
+    // Reverse geocode pin -> city, country, address (guest-facing location text)
+    const updatePlaceFromCoords = async (lat, lon) => {
+        if (typeof onPlaceResolved !== 'function') return;
         try {
-            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+            const response = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
+                { headers: { 'Accept-Language': 'en', 'User-Agent': 'StayNepalHotelApp/1.0' } }
+            );
             const data = await response.json();
-            if (data && data.address) {
-                // Common OSM city/location labels
-                const cityName = data.address.city ||
-                    data.address.town ||
-                    data.address.village ||
-                    data.address.municipality ||
-                    data.address.suburb ||
-                    'Nepal';
-                setCity(cityName);
-            }
+            if (!data?.address) return;
+            const a = data.address;
+            const cityName =
+                a.city ||
+                a.town ||
+                a.village ||
+                a.municipality ||
+                a.county ||
+                a.state_district ||
+                a.suburb ||
+                '';
+            const countryName = a.country || '';
+            const roadLine = [a.house_number, a.road].filter(Boolean).join(' ').trim();
+            const areaLine = [a.neighbourhood, a.quarter, a.suburb].filter(Boolean).join(', ');
+            const addressLine =
+                roadLine ||
+                areaLine ||
+                (data.display_name ? data.display_name.split(',').slice(0, 3).join(',').trim() : '');
+            onPlaceResolved({
+                city: cityName,
+                country: countryName,
+                address: addressLine,
+            });
         } catch (error) {
-            console.error('Sync failed:', error);
+            console.error('Geocode sync failed:', error);
         }
     };
     const mapCenter = (latitude && longitude) ? [latitude, longitude] : [28.3949, 84.1240];
@@ -87,7 +103,6 @@ const MapSection = ({
 
     return (
         <div className="admin-card overflow-hidden bg-white flex flex-col lg:flex-row h-[500px]">
-            {/* Map Area - 60% */}
             <div className="flex-1 relative border-r border-[#E2E2E2]">
                 <MapContainer
                     center={mapCenter}
@@ -105,7 +120,7 @@ const MapSection = ({
                         setLongitude={setLongitude}
                         latitude={latitude}
                         longitude={longitude}
-                        updateCityFromCoords={updateCityFromCoords}
+                        updatePlaceFromCoords={updatePlaceFromCoords}
                     />
                     <MapRecenter center={mapCenter} showDirections={showDirections} />
                 </MapContainer>
@@ -124,7 +139,6 @@ const MapSection = ({
                 )}
             </div>
 
-            {/* Info Side - 40% */}
             <div className="w-full lg:w-[40%] flex flex-col bg-[#F9FAFB] p-6 overflow-y-auto">
                 <div className="mb-6">
                     <span className="admin-label">Spatial Records</span>
@@ -147,7 +161,7 @@ const MapSection = ({
                                     readOnly
                                     className="admin-input bg-[#F1F5F9] font-bold border-none"
                                 />
-                                <p className="text-[10px] text-[#94A3B8] mt-1 italic">Automatically updated via map pin</p>
+                                <p className="text-[10px] text-[#94A3B8] mt-1 italic">Updated when you move the pin (address &amp; city sync to the map)</p>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="form-group mb-0">
@@ -157,6 +171,11 @@ const MapSection = ({
                                         step="any"
                                         value={latitude}
                                         onChange={(e) => setLatitude(parseFloat(e.target.value) || 0)}
+                                        onBlur={() => {
+                                            if (isEditing && latitude != null && longitude != null) {
+                                                updatePlaceFromCoords(latitude, longitude);
+                                            }
+                                        }}
                                         disabled={!isEditing}
                                         className="admin-input bg-white"
                                     />
@@ -168,6 +187,11 @@ const MapSection = ({
                                         step="any"
                                         value={longitude}
                                         onChange={(e) => setLongitude(parseFloat(e.target.value) || 0)}
+                                        onBlur={() => {
+                                            if (isEditing && latitude != null && longitude != null) {
+                                                updatePlaceFromCoords(latitude, longitude);
+                                            }
+                                        }}
                                         disabled={!isEditing}
                                         className="admin-input bg-white"
                                     />

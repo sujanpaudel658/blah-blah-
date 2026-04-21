@@ -8,7 +8,7 @@ import Footer from "../components/Footer";
 import { API_URL } from "../config/api";
 import { getImageUrl } from "../utils/helpers";
 
-// Fix for default marker icon issues in React-Leaflet
+// react-leaflet default marker icons
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
@@ -58,7 +58,6 @@ const Home = () => {
       })
       .catch(err => console.error('Error fetching stats:', err));
 
-    // Load initial hotels without scrolling
     executeSearch({ location: '', guests: '', checkIn: '', checkOut: '' }, false);
   }, []);
 
@@ -66,12 +65,9 @@ const Home = () => {
     setSelectedHotel(hotel);
     setShowModal(true);
     
-    // Fetch hotel-specific information
     try {
-      // 1. Rooms
       const roomRes = await axios.get(`${API_URL}/rooms/search?hotelId=${hotel.id}&checkIn=${bookingDates.checkIn}&checkOut=${bookingDates.checkOut}`);
       if (roomRes.data.success) {
-        // Group by type
         const roomsByType = roomRes.data.rooms.reduce((acc, r) => {
           if (!acc[r.room_type_id]) acc[r.room_type_id] = { ...r, count: 0 };
           acc[r.room_type_id].count += 1;
@@ -80,7 +76,6 @@ const Home = () => {
         setHotelRooms(Object.values(roomsByType));
       }
 
-      // 2. Reviews
       const reviewRes = await axios.get(`${API_URL}/reviews/hotel/${hotel.id}`);
       if (reviewRes.data.success) {
         setHotelReviews(reviewRes.data.reviews);
@@ -143,6 +138,8 @@ const Home = () => {
               name: room.hotel_name,
               image: room.hotel_image,
               city: room.hotel_city,
+              address: room.hotel_address || '',
+              country: room.hotel_country || '',
               startingPrice: Number(room.base_price),
               totalUnits: 0,
               amenities: Array.isArray(parsedAmenities) ? parsedAmenities : [],
@@ -185,7 +182,6 @@ const Home = () => {
   return (
     <div className="min-h-screen bg-[#FAF8F5] text-[#2C3E50] antialiased flex flex-col" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       
-      {/* ─── Navigation ─── */}
       <nav className="h-[92px] bg-[#1A2332] sticky top-0 z-50 border-b border-white/5 backdrop-blur-lg">
         <div className="max-w-7xl mx-auto h-full px-6 flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer group" onClick={handleLogoClick}>
@@ -229,9 +225,7 @@ const Home = () => {
         </div>
       </nav>
 
-      {/* ─── Hero Section ─── */}
       <main className="flex-1 overflow-x-hidden pt-20 pb-16 relative">
-        {/* Background Video Layer */}
         <div className="absolute inset-0 z-0 h-[700px] overflow-hidden">
           <video 
             autoPlay 
@@ -242,7 +236,6 @@ const Home = () => {
           >
             <source src="/videos/857267-hd_1920_1080_24fps.mp4" type="video/mp4" />
           </video>
-          {/* Elegant Gradient Overlay */}
           <div className="absolute inset-0 bg-gradient-to-b from-[#FAF8F5]/80 via-[#FAF8F5]/40 to-[#FAF8F5]"></div>
         </div>
 
@@ -264,7 +257,6 @@ const Home = () => {
               </p>
             </div>
 
-            {/* Destination Cards */}
             <div className="hidden lg:grid grid-cols-2 gap-6">
               <div 
                 onClick={() => handleQuickSearch('Kathmandu')}
@@ -301,7 +293,6 @@ const Home = () => {
             </div>
           </div>
 
-          {/* ─── Search Bar ─── */}
           <div className="bg-white p-8 md:p-10 shadow-[0_40px_80px_-20px_rgba(0,0,0,0.1)] rounded-[2.5rem] relative overflow-hidden border-2 border-[#E8E4DE] fade-in transform scale-100">
             <div className="absolute top-0 right-0 w-64 h-64 bg-[#C4993E]/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
             
@@ -372,7 +363,6 @@ const Home = () => {
             </form>
           </div>
 
-          {/* ─── Search Results ─── */}
           {(rooms.length > 0) && (
             <div id="search-results" className="mt-32 space-y-12">
               <div className="flex flex-col md:flex-row items-end justify-between gap-6 border-b-2 border-[#E8E4DE] pb-10">
@@ -420,9 +410,12 @@ const Home = () => {
                         <div className="flex justify-between items-start mb-6">
                           <div className="space-y-1">
                             <h3 className="text-xl font-bold text-[#1A2332] leading-tight">{hotel.name}</h3>
-                            <div className="flex items-center gap-1.5 text-[#6B7B8D] text-[13px] font-medium">
-                              <span className="material-symbols-outlined text-sm text-[#C4993E]">location_on</span>
-                              {hotel.city || hotel.hotel_city}, Nepal
+                            <div className="flex items-start gap-1.5 text-[#6B7B8D] text-[14px] font-medium leading-snug">
+                              <span className="material-symbols-outlined text-base text-[#C4993E] shrink-0 mt-0.5">location_on</span>
+                              <span>
+                                {(hotel.address && String(hotel.address).trim()) ||
+                                  [hotel.city || hotel.hotel_city, hotel.country || 'Nepal'].filter(Boolean).join(', ')}
+                              </span>
                             </div>
                           </div>
                           <div className="text-right">
@@ -468,7 +461,6 @@ const Home = () => {
             </div>
           )}
 
-          {/* ─── Guest Reviews ─── */}
           <div id="experiences" className="mt-24 space-y-12">
             <div className="flex flex-col items-center text-center space-y-3">
               <span className="text-[12px] font-semibold text-[#C4993E] uppercase tracking-[0.2em]">What Our Guests Say</span>
@@ -525,7 +517,6 @@ const Home = () => {
             )}
           </div>
 
-            {/* No Results */}
             {!searching && rooms.length === 0 && searchParams.location && (
               <div className="mt-20 text-center p-20 bg-white border-2 border-dashed border-[#D8D4CE] rounded-[2.5rem] fade-in transform scale-100">
                 <div className="w-20 h-20 bg-[#F4F3F0] rounded-full flex items-center justify-center mx-auto mb-6">
@@ -539,7 +530,6 @@ const Home = () => {
               </div>
             )}
 
-            {/* ─── Stats ─── */}
             <div className="mt-28 grid grid-cols-2 md:grid-cols-3 gap-8 text-center bg-white border-2 border-[#E8E4DE] p-12 md:p-16 rounded-[2.5rem] relative overflow-hidden shadow-[0_20px_50px_-20px_rgba(0,0,0,0.05)] transition-all hover:shadow-xl">
               <div className="relative z-10">
                 <p className="text-5xl font-black text-[#C4993E] tracking-tighter" style={{ fontFamily: "'Playfair Display', serif" }}>
@@ -562,14 +552,12 @@ const Home = () => {
             </div>
         </div>
 
-        {/* ─── Hotel Details Modal ─── */}
         {showModal && selectedHotel && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 md:p-8 overflow-hidden">
             <div className="absolute inset-0 bg-[#0A0F1A]/95 backdrop-blur-xl animate-in fade-in duration-300" onClick={() => setShowModal(false)}></div>
             
             <div className="relative w-full max-w-7xl h-full max-h-[90vh] bg-[#FAF8F5] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in duration-500 border-2 border-white/20">
               
-              {/* Header */}
               <div className="absolute top-8 right-8 z-50">
                 <button 
                   onClick={() => setShowModal(false)}
@@ -580,7 +568,6 @@ const Home = () => {
               </div>
 
               <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
-                {/* Hero / Images */}
                 <div className="h-[400px] md:h-[500px] relative">
                   <img 
                     src={selectedHotel.image ? (selectedHotel.image.startsWith('[') ? JSON.parse(selectedHotel.image)[0] : selectedHotel.image) : 'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=1200'} 
@@ -602,9 +589,7 @@ const Home = () => {
                   </div>
                 </div>
 
-                {/* Content Grid */}
                 <div className="p-12 md:p-16 grid grid-cols-1 lg:grid-cols-3 gap-16">
-                  {/* Left Column: Details & Reviews */}
                   <div className="lg:col-span-2 space-y-16">
                     <div>
                       <h3 className="text-sm font-black text-[#C4993E] uppercase tracking-[0.2em] mb-4">About the Property</h3>
@@ -613,7 +598,6 @@ const Home = () => {
                       </p>
                     </div>
 
-                    {/* Room Availability */}
                     <div className="space-y-8">
                       <div className="flex items-center justify-between border-b-2 border-[#E8E4DE] pb-6">
                         <h3 className="text-xl font-black text-[#1A2332] uppercase tracking-wider">Available Suites</h3>
@@ -654,7 +638,6 @@ const Home = () => {
                       </div>
                     </div>
 
-                    {/* Guest Reviews */}
                     <div className="space-y-8">
                        <h3 className="text-xl font-black text-[#1A2332] uppercase tracking-wider border-b-2 border-[#E8E4DE] pb-6">Guest Experiences</h3>
                        <div className="space-y-6">
@@ -695,7 +678,6 @@ const Home = () => {
                     </div>
                   </div>
 
-                  {/* Right Column: Booking Card / Location */}
                   <div className="space-y-12 sticky top-8 self-start">
                     <div className="bg-white p-10 rounded-[2.5rem] border-2 border-[#E8E4DE] shadow-[0_20px_50px_-20px_rgba(0,0,0,0.05)] text-[#1A2332] space-y-8">
                       <div>
@@ -723,7 +705,6 @@ const Home = () => {
                       </button>
                     </div>
 
-                    {/* Simple Map Placeholder or actual Map if possible */}
                     <div className="bg-white border-2 border-[#E8E4DE] p-4 rounded-[2.5rem] h-[300px] overflow-hidden relative group">
                        {selectedHotel.latitude && selectedHotel.longitude ? (
                          <MapContainer 
