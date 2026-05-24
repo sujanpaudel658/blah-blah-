@@ -152,6 +152,29 @@ async function main() {
             'bookings.fk_bookings_cancelled_by'
         );
 
+        await ensureColumn(
+            conn,
+            'bookings',
+            'cancellation_reason',
+            'ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT NULL AFTER cancelled_by',
+            'bookings.cancellation_reason'
+        );
+
+        await ensureColumn(
+            conn,
+            'payments',
+            'pidx',
+            'ALTER TABLE payments ADD COLUMN pidx VARCHAR(255) NULL AFTER transaction_id',
+            'payments.pidx'
+        );
+        await ensureIndex(
+            conn,
+            'payments',
+            'idx_payments_pidx',
+            'ALTER TABLE payments ADD INDEX idx_payments_pidx (pidx)',
+            'payments.idx_payments_pidx'
+        );
+
         await conn.query(`
             CREATE TABLE IF NOT EXISTS notifications (
               id INT AUTO_INCREMENT PRIMARY KEY,
@@ -412,6 +435,20 @@ async function main() {
             'ALTER TABLE room_types ADD INDEX idx_room_types_hotel_price (hotel_id, base_price)',
             'room_types.idx_room_types_hotel_price'
         );
+
+        await ensureColumn(
+            conn,
+            'users',
+            'email_verified_at',
+            'ALTER TABLE users ADD COLUMN email_verified_at DATETIME NULL AFTER is_verified',
+            'users.email_verified_at'
+        );
+        await conn.query(`
+            UPDATE users
+            SET email_verified_at = COALESCE(email_verified_at, updated_at, created_at, NOW())
+            WHERE is_verified = 1 AND email_verified_at IS NULL
+        `);
+        console.log('OK: users.email_verified_at backfill for verified accounts');
 
         console.log('Migrations check finished.');
     } catch (e) {

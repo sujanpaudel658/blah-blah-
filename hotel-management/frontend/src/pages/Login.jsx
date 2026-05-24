@@ -20,6 +20,10 @@ const Login = () => {
   const [forgotPasswordError, setForgotPasswordError] = useState('');
   const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState('');
 
+  const [needsEmailVerification, setNeedsEmailVerification] = useState(false);
+  const [verificationNotice, setVerificationNotice] = useState('');
+  const [resendVerificationError, setResendVerificationError] = useState('');
+
   useEffect(() => {
     if (!document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) {
       const script = document.createElement('script');
@@ -75,6 +79,9 @@ const Login = () => {
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setNeedsEmailVerification(false);
+    setVerificationNotice('');
+    setResendVerificationError('');
     if (!email || !password) { setError('Please enter your email and password.'); return; }
     setLoading(true);
     try {
@@ -88,6 +95,9 @@ const Login = () => {
         setPasswordSetEmail(err.response.data.passwordSetupEmail || email);
         setPasswordSetSuccess(err.response.data.passwordSetupEmailSent ? 'A secure setup link was sent to your email.' : '');
         setShowPasswordSet(true);
+      } else if (err.response?.data?.requiresEmailVerification) {
+        setNeedsEmailVerification(true);
+        setError(err.response.data.message || 'Please verify your email before signing in.');
       } else {
         setError(err.response?.data?.message || 'Invalid credentials. Please try again.');
       }
@@ -110,6 +120,37 @@ const Login = () => {
       setPasswordSetSuccess(res.data.message || 'Setup link sent. Check your inbox.');
     } catch (err) {
       setPasswordSetError(err.response?.data?.message || 'Failed to send setup link.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setResendVerificationError('');
+    setVerificationNotice('');
+    if (!email || !password) {
+      setResendVerificationError('Enter your email and password, then try again.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await axios.post(`${API_URL}/auth/resend-verification`, {
+        email,
+        password,
+        clientOrigin: window.location.origin
+      });
+      setVerificationNotice(res.data.message || 'A new verification link has been sent to your email.');
+    } catch (err) {
+      if (err.response?.data?.code === 'ALREADY_VERIFIED') {
+        setVerificationNotice(
+          err.response?.data?.message ||
+            'This email is already verified. Sign in from any address (localhost or LAN).'
+        );
+        setNeedsEmailVerification(false);
+        setError('');
+      } else {
+        setResendVerificationError(err.response?.data?.message || 'Could not send verification email.');
+      }
     } finally {
       setLoading(false);
     }
@@ -153,6 +194,24 @@ const Login = () => {
             {error && (
               <div className="mb-6 bg-[#FDEDED] border-l-3 border-[#C0392B] p-4 rounded-lg text-[#C0392B] text-[13px] font-medium">
                 {error}
+              </div>
+            )}
+
+            {needsEmailVerification && (
+              <div className="mb-6 rounded-lg border border-[#E8E4DE] bg-[#FAF8F5] p-4">
+                <p className="text-[13px] text-[#6B7B8D] mb-3">
+                  Verification is required once. After you confirm your email, you will not be asked again.
+                </p>
+                {verificationNotice && <p className="text-[#2D8659] text-[13px] mb-2">{verificationNotice}</p>}
+                {resendVerificationError && <p className="text-[#C0392B] text-[13px] mb-2">{resendVerificationError}</p>}
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={loading}
+                  className="w-full bg-[#C4993E] text-white py-3 rounded-lg font-semibold text-[13px] hover:bg-[#AE872E] transition-all"
+                >
+                  {loading ? 'Sending…' : 'Resend verification email'}
+                </button>
               </div>
             )}
 
@@ -220,7 +279,7 @@ const Login = () => {
 
         <div className="relative z-10 px-12 pb-16 space-y-4">
           <div className="flex items-center gap-1">
-            {[...Array(5)].map((_, i) => <span key={i} className="text-[#C4993E] text-lg">★</span>)}
+            {[...Array(5)].map((_, i) => <span key={i} className="text-[#C4993E] text-lg"></span>)}
           </div>
           <p className="text-2xl font-bold text-white max-w-lg leading-snug" style={{ fontFamily: "'Playfair Display', serif" }}>
             "The most seamless hotel booking experience in Nepal. Absolutely loved our stay."

@@ -1,16 +1,38 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { API_URL } from '../config/api';
+import api from '../config/api';
+import {
+  clearKhaltiCheckoutOrigin,
+  getKhaltiReturnOriginMismatch
+} from '../utils/khaltiCheckout';
+import { guestDashboardBookingsReceiptUrl } from '../utils/guestDashboardNav';
 
 const KhaltiCallback = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const [status, setStatus] = useState('verifying'); // verifying, success, error
+    const [status, setStatus] = useState('verifying');
     const [message, setMessage] = useState('Verifying your payment...');
+    const [bookingRefHint, setBookingRefHint] = useState(null);
     const verifyStarted = useRef(false);
 
+    const goToReceipt = () => {
+        const params = new URLSearchParams(location.search);
+        const ref =
+            bookingRefHint ||
+            params.get('purchase_order_id')?.trim() ||
+            undefined;
+        navigate(guestDashboardBookingsReceiptUrl(ref));
+    };
+
     useEffect(() => {
+        const mismatchOrigin = getKhaltiReturnOriginMismatch();
+        if (mismatchOrigin) {
+            window.location.replace(
+              `${mismatchOrigin}${location.pathname}${location.search}${location.hash}`
+            );
+            return;
+        }
+
         const verifyPayment = async () => {
             const queryParams = new URLSearchParams(location.search);
             const pidx = queryParams.get('pidx')?.trim();
@@ -25,15 +47,16 @@ const KhaltiCallback = () => {
 
             const okKey = `khalti_verify_ok_${pidx}`;
             if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(okKey)) {
+                if (purchase_order_id) setBookingRefHint(purchase_order_id);
+                clearKhaltiCheckoutOrigin();
                 setStatus('success');
                 setMessage('Payment verified successfully.');
-                setTimeout(() => {
-                    navigate('/guest/dashboard', { state: { activeTab: 'bookings' } });
-                }, 2000);
+                setTimeout(goToReceipt, 2000);
                 return;
             }
 
             if (status_from_url === 'User canceled') {
+                clearKhaltiCheckoutOrigin();
                 setStatus('error');
                 setMessage('Payment was canceled by the user.');
                 return;
@@ -43,7 +66,7 @@ const KhaltiCallback = () => {
             verifyStarted.current = true;
 
             try {
-                const response = await axios.post(`${API_URL}/payments/verify`, {
+                const response = await api.post('/payments/verify', {
                     pidx,
                     purchase_order_id
                 });
@@ -54,12 +77,11 @@ const KhaltiCallback = () => {
                     } catch (_) {
                         /* ignore */
                     }
+                    if (purchase_order_id) setBookingRefHint(purchase_order_id);
+                    clearKhaltiCheckoutOrigin();
                     setStatus('success');
                     setMessage(response.data.message || 'Payment successful! Your booking has been confirmed.');
-                    // Redirect to dashboard after 3 seconds
-                    setTimeout(() => {
-                        navigate('/guest/dashboard', { state: { activeTab: 'bookings' } });
-                    }, 3000);
+                    setTimeout(goToReceipt, 3000);
                 } else {
                     verifyStarted.current = false;
                     setStatus('error');
@@ -98,13 +120,15 @@ const KhaltiCallback = () => {
                         <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Your digital bill is now available in your dashboard.</p>
                         <div className="flex flex-col gap-3">
                             <button
-                                onClick={() => navigate('/guest/dashboard', { state: { activeTab: 'bookings' } })}
+                                type="button"
+                                onClick={goToReceipt}
                                 className="w-full py-4 bg-[#607AFB] text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-[#607AFB]/20 hover:scale-[1.02] active:scale-95 transition-all"
                             >
                                 View My Receipt
                             </button>
                             <button
-                                onClick={() => navigate('/guest/dashboard')}
+                                type="button"
+                                onClick={() => navigate('/')}
                                 className="w-full py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-50 transition-all"
                             >
                                 Back to Home
@@ -121,10 +145,11 @@ const KhaltiCallback = () => {
                         <h2 className="text-2xl font-bold text-slate-900">Payment Failed</h2>
                         <p className="text-slate-600">{message}</p>
                         <button
-                            onClick={() => navigate('/guest/dashboard')}
+                            type="button"
+                            onClick={() => navigate(guestDashboardBookingsReceiptUrl())}
                             className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-slate-800 transition-all"
                         >
-                            Try Again
+                            Go to My Bookings
                         </button>
                     </div>
                 )}

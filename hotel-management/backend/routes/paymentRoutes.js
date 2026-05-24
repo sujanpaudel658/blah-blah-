@@ -71,7 +71,14 @@ router.get('/hotel/:hotelId', protect, requireRole(['admin', 'superadmin']), asy
 
         const [bookings] = await db.query(
             `SELECT b.*, r.room_number, rt.name as room_type, u.full_name as guest_user_name, p.payment_method,
-                    bgd.guest_name, bgd.guest_email, bgd.guest_phone, bgd.special_requests
+                    bgd.guest_name, bgd.guest_email, bgd.guest_phone, bgd.special_requests,
+                    COALESCE((
+                      SELECT SUM(CAST(SUBSTRING(pext.notes, 16) AS UNSIGNED))
+                      FROM payments pext
+                      WHERE pext.booking_id = b.id
+                        AND pext.status = 'completed'
+                        AND pext.notes LIKE 'stay_extension:%'
+                    ), 0) AS extension_nights
              FROM bookings b
              JOIN rooms r ON b.room_id = r.id
              JOIN room_types rt ON r.room_type_id = rt.id

@@ -96,32 +96,48 @@ const getNotifications = async ({ userId, role, includeSystem = true, isRead, ty
 };
 
 const markAsRead = async ({ id, userId, role }) => {
-  const [result] = await db.query(
-    `UPDATE notifications
-     SET is_read = 1
-     WHERE id = ? AND role = ? AND ((user_id IS NULL AND ? IS NULL) OR user_id = ?)`,
-    [id, role, userId, userId]
-  );
+  let sql;
+  let params;
+  if (userId === null || userId === undefined) {
+    sql = `UPDATE notifications SET is_read = 1 WHERE id = ? AND role = ? AND user_id IS NULL`;
+    params = [id, role];
+  } else {
+    sql = `UPDATE notifications SET is_read = 1
+           WHERE id = ? AND role = ? AND (user_id IS NULL OR user_id = ?)`;
+    params = [id, role, userId];
+  }
+  const [result] = await db.query(sql, params);
   return result.affectedRows > 0;
 };
 
 const markAllAsRead = async ({ userId, role }) => {
-  const [result] = await db.query(
-    `UPDATE notifications
-     SET is_read = 1
-     WHERE role = ? AND ((user_id IS NULL AND ? IS NULL) OR user_id = ?) AND is_read = 0`,
-    [role, userId, userId]
-  );
+  let sql;
+  let params;
+  if (userId === null || userId === undefined) {
+    sql = `UPDATE notifications SET is_read = 1 WHERE role = ? AND user_id IS NULL AND is_read = 0`;
+    params = [role];
+  } else {
+    sql = `UPDATE notifications SET is_read = 1
+           WHERE role = ? AND is_read = 0 AND (user_id = ? OR user_id IS NULL)`;
+    params = [role, userId];
+  }
+  const [result] = await db.query(sql, params);
   return Number(result.affectedRows || 0);
 };
 
 const countUnread = async ({ userId, role }) => {
-  const [rows] = await db.query(
-    `SELECT COUNT(*) AS unread_count
-     FROM notifications
-     WHERE role = ? AND ((user_id IS NULL AND ? IS NULL) OR user_id = ?) AND is_read = 0`,
-    [role, userId, userId]
-  );
+  let sql;
+  let params;
+  if (userId === null || userId === undefined) {
+    sql = `SELECT COUNT(*) AS unread_count FROM notifications
+           WHERE role = ? AND user_id IS NULL AND is_read = 0`;
+    params = [role];
+  } else {
+    sql = `SELECT COUNT(*) AS unread_count FROM notifications
+           WHERE role = ? AND is_read = 0 AND (user_id = ? OR user_id IS NULL)`;
+    params = [role, userId];
+  }
+  const [rows] = await db.query(sql, params);
   return Number(rows[0]?.unread_count || 0);
 };
 

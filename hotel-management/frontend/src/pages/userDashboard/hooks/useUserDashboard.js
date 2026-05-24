@@ -3,10 +3,15 @@ import { useReactToPrint } from 'react-to-print';
 import { useNavigate, useLocation } from 'react-router-dom';
 import useGroupedBookings from './useGroupedBookings';
 import {
-  mapGroupedRoomSearchToHotel,
   mapHotelFromApi,
-  groupRoomsByHotelFromSearch
+  mapGroupedRoomSearchToHotel,
+  groupRoomsByHotelFromSearch,
+  filterHotelsByLocationTerm
 } from '../utils';
+import {
+  enrichHotelLocationFromCoords,
+  enrichHotelsList
+} from '../../../utils/hotelLocation';
 import {
   getHotels,
   getHotelReviews as getHotelReviewsApi,
@@ -25,6 +30,7 @@ import {
   rescheduleBooking,
   submitReview as submitReviewApi
 } from '../services';
+import { redirectToKhaltiPayment } from '../../../utils/khaltiCheckout';
 
 export default function useUserDashboard() {
 const navigate = useNavigate();
@@ -102,17 +108,66 @@ const navigate = useNavigate();
   const handlePrint = useReactToPrint({
     contentRef,
     documentTitle: `Receipt-${selectedBill?.booking_reference || 'Booking'}`,
+    pageStyle: `
+      @page { size: auto; margin: 12mm; }
+      html, body {
+        height: auto !important;
+        overflow: visible !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .receipt-print-root {
+        width: 80mm !important;
+        max-width: 100% !important;
+        margin: 0 auto !important;
+        padding: 5mm !important;
+        box-sizing: border-box !important;
+        overflow: visible !important;
+        border: none !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+      }
+      .receipt-print-root * {
+        overflow: visible !important;
+      }
+      .receipt-row {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: flex-start !important;
+        gap: 4px !important;
+        width: 100% !important;
+      }
+      .receipt-row-value {
+        text-align: right !important;
+        word-break: break-word !important;
+        overflow-wrap: anywhere !important;
+        flex: 1 1 48% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+      }
+    `
   });
 
+  const loadHotelsWithSyncedLocation = async () => {
+    const res = await getHotels();
+    const mapped = (res.data.hotels || []).map(mapHotelFromApi);
+    return enrichHotelsList(mapped);
+  };
+
+  const patchHotelInLists = (enriched) => {
+    if (!enriched?.id) return;
+    const sync = (list) => list.map((h) => (h.id === enriched.id ? enriched : h));
+    setHotels((prev) => sync(prev));
+    setSearchResults((prev) => sync(prev));
+  };
+
   useEffect(() => {
-    getHotels()
-      .then(res => {
-        const mapped = (res.data.hotels || []).map(mapHotelFromApi);
-        setHotels(mapped);
-        setSearchResults(mapped);
-        return mapped;
+    loadHotelsWithSyncedLocation()
+      .then((located) => {
+        setHotels(located);
+        setSearchResults(located);
       })
-      .catch(err => {
+      .catch((err) => {
         console.error('Initial hotels data load error:', err);
       });
   }, []);
@@ -138,25 +193,56 @@ const navigate = useNavigate();
     }
 
     const parsedUser = JSON.parse(userData);
-    if (parsedUser.role === 'admin') {
-      navigate('/admin/dashboard', { replace: true });
-      return;
-    }
-    if (parsedUser.role === 'superadmin') {
-      navigate('/superadmin/dashboard', { replace: true });
-      return;
-    }
-
     setUser(parsedUser);
-    fetchMyBookings();
 
-    if (location.state?.activeTab) {
-      setActiveTab(location.state.activeTab);
-      window.history.replaceState({}, document.title);
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get('tab');
+    const stateTab = location.state?.activeTab;
+    if (tabParam === 'bookings' || tabParam === 'explore') {
+      setActiveTab(tabParam);
+    } else if (stateTab === 'bookings' || stateTab === 'explore') {
+      setActiveTab(stateTab);
     }
-  }, [navigate, location]);
+
+    fetchMyBookings();
+  }, [navigate, location.search, location.state?.activeTab]);
 
   const displayBookings = useGroupedBookings(myBookings);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('receipt') !== '1' || displayBookings.length === 0) return;
+
+    const refHint = params.get('ref');
+    let match = null;
+    if (refHint) {
+      const prefix = String(refHint).split('-')[0];
+      match = displayBookings.find((b) => {
+        const ref = String(b.booking_reference || '');
+        if (ref.startsWith(prefix) || ref.includes(prefix)) return true;
+        return b._groupBookings?.some((s) =>
+          String(s.booking_reference || '').includes(prefix)
+        );
+      });
+    }
+    if (!match) {
+      const isPaid = (b) =>
+        ['confirmed', 'checked_in', 'checked_out'].includes(b.status) &&
+        ['paid', 'completed'].includes(String(b.payment_status || '').toLowerCase());
+      match =
+        [...displayBookings]
+          .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+          .find(isPaid) || displayBookings[0];
+    }
+
+    if (match) {
+      setActiveTab('bookings');
+      setSelectedBill(match);
+      setShowBillModal(true);
+    }
+
+    navigate({ pathname: '/guest/dashboard', search: '?tab=bookings' }, { replace: true });
+  }, [displayBookings, location.search, navigate]);
 
   useEffect(() => {
     if (showPassModal && selectedPass) {
@@ -219,15 +305,36 @@ const navigate = useNavigate();
       const { data } = await searchRooms(params);
       if (!data.success) throw new Error(data.message || 'Search failed');
       const grouped = groupRoomsByHotelFromSearch(data.rooms || []);
-      setSearchResults(Object.values(grouped).map(mapGroupedRoomSearchToHotel));
+      const mapped = Object.values(grouped).map(mapGroupedRoomSearchToHotel);
+      let located = await enrichHotelsList(mapped);
+
+      if (located.length === 0 && loc) {
+        const noDateParams = new URLSearchParams({
+          location: loc,
+          guests: numGuests ? String(numGuests) : ''
+        });
+        const retry = await searchRooms(noDateParams);
+        if (retry.data.success) {
+          const groupedRetry = groupRoomsByHotelFromSearch(retry.data.rooms || []);
+          const mappedRetry = Object.values(groupedRetry).map(mapGroupedRoomSearchToHotel);
+          located = await enrichHotelsList(mappedRetry);
+        }
+      }
+
+      if (located.length === 0 && loc) {
+        const catalog = await loadHotelsWithSyncedLocation();
+        located = filterHotelsByLocationTerm(catalog, loc);
+      }
+
+      setSearchResults(located);
       setExploreSearchActive(true);
       setTimeout(() => {
         document.getElementById('dashboard-hotel-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 80);
     } catch (err) {
       console.error('Hotel search error:', err);
-      setSearchResults(hotels);
-      setExploreSearchActive(false);
+      setSearchResults([]);
+      setExploreSearchActive(true);
     } finally {
       setHotelSearchLoading(false);
     }
@@ -248,11 +355,10 @@ const navigate = useNavigate();
     setExploreSearchActive(false);
     setSearchResults(hotels);
     if (!hotels.length) {
-      getHotels()
-        .then((res) => {
-          const mapped = (res.data.hotels || []).map(mapHotelFromApi);
-          setHotels(mapped);
-          setSearchResults(mapped);
+      loadHotelsWithSyncedLocation()
+        .then((located) => {
+          setHotels(located);
+          setSearchResults(located);
         })
         .catch((err) => {
           console.error('Clear search hotel reload error:', err);
@@ -261,8 +367,7 @@ const navigate = useNavigate();
   };
 
   const visibleHotels = exploreSearchActive ? searchResults : (hotels.length ? hotels : searchResults);
-  const hotelsToRender =
-    exploreSearchActive && searchResults.length === 0 && hotels.length > 0 ? hotels : visibleHotels;
+  const hotelsToRender = visibleHotels;
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -270,11 +375,26 @@ const navigate = useNavigate();
     navigate('/login');
   };
 
-  const handleHotelClick = (hotel) => {
-    setSelectedHotel(hotel);
+  const handleHotelClick = async (hotel) => {
     setActiveImageIndex(0);
     setShowModal(true);
     setLoyaltyStatus(null);
+    setSelectedHotel(hotel);
+
+    try {
+      const res = await getHotels();
+      const match = (res.data.hotels || []).find((h) => h.id === hotel.id);
+      let next = match ? mapHotelFromApi(match) : hotel;
+      next = await enrichHotelLocationFromCoords(next);
+      setSelectedHotel(next);
+      patchHotelInLists(next);
+    } catch (err) {
+      console.error('Hotel refresh for map coords:', err);
+      const fallback = await enrichHotelLocationFromCoords(hotel);
+      setSelectedHotel(fallback);
+      patchHotelInLists(fallback);
+    }
+
     fetchRooms(hotel.id);
     fetchHotelReviews(hotel.id);
     fetchLoyaltyStatus(hotel.id);
@@ -293,12 +413,17 @@ const navigate = useNavigate();
       const { checkIn, checkOut } = bookingDates;
       const res = await getRoomsApi(hotelId, checkIn, checkOut, token);
       if (res.data.success) {
-        const roomsByType = res.data.rooms.reduce((acc, room) => {
-          if (!acc[room.room_type_id]) {
-            acc[room.room_type_id] = { ...room, available_count: 0, room_ids: [] };
+        const hotelIdNum = Number(hotelId);
+        const forHotel = (res.data.rooms || []).filter(
+          (room) => Number(room.hotel_id) === hotelIdNum
+        );
+        const roomsByType = forHotel.reduce((acc, room) => {
+          const key = `${room.hotel_id}-${room.room_type_id}`;
+          if (!acc[key]) {
+            acc[key] = { ...room, available_count: 0, room_ids: [] };
           }
-          acc[room.room_type_id].available_count += 1;
-          acc[room.room_type_id].room_ids.push(room.id);
+          acc[key].available_count += 1;
+          acc[key].room_ids.push(room.id);
           return acc;
         }, {});
 
@@ -366,7 +491,8 @@ const navigate = useNavigate();
         num_guests: numGuests,
         num_rooms: numRooms,
         payment_method: method,
-        apply_loyalty: loyaltyEligible
+        apply_loyalty: loyaltyEligible,
+        clientOrigin: window.location.origin
       };
 
       const res = await initiatePaymentApi(payload, token);
@@ -375,7 +501,7 @@ const navigate = useNavigate();
         if (method === 'khalti') {
           const payUrl = res.data.payment?.payment_url;
           if (payUrl) {
-            window.location.href = payUrl;
+            redirectToKhaltiPayment(payUrl);
           } else {
             alert(
               'Payment did not return a link. Check that KHALTI_SECRET_KEY is set on the server, then try again.'
@@ -488,11 +614,14 @@ const navigate = useNavigate();
     try {
       const token = localStorage.getItem('token');
       const res = await payOnlineForBookingApi(
-        ids.length > 1 ? { bookingIds: ids } : { bookingId: ids[0] },
+        {
+          ...(ids.length > 1 ? { bookingIds: ids } : { bookingId: ids[0] }),
+          clientOrigin: window.location.origin
+        },
         token
       );
       if (res.data.success && res.data.payment?.payment_url) {
-        window.location.href = res.data.payment.payment_url;
+        redirectToKhaltiPayment(res.data.payment.payment_url);
         return;
       }
       if (res.data?.code === 'KHALTI_NOT_CONFIGURED') {
@@ -533,7 +662,8 @@ const navigate = useNavigate();
         {
           bookingId: extendTarget.id,
           additional_nights: Number(extendNights),
-          payment_method: extendMethod
+          payment_method: extendMethod,
+          clientOrigin: window.location.origin
         },
         token
       );
@@ -541,7 +671,7 @@ const navigate = useNavigate();
         if (extendMethod === 'khalti') {
           const payUrl = res.data.payment?.payment_url;
           if (payUrl) {
-            window.location.href = payUrl;
+            redirectToKhaltiPayment(payUrl);
             return;
           }
           alert('Extension payment did not return a link. Check Khalti configuration on the server.');

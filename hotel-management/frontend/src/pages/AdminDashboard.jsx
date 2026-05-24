@@ -11,6 +11,16 @@ import MapSection from '../components/admin/MapSection';
 import QRScanner from '../components/admin/QRScanner';
 
 import { parseHotelImages, getImageUrl, compressImage } from '../utils/helpers';
+import { reverseGeocode } from '../utils/reverseGeocode';
+import { isGeocodePlausible, normalizeCoordPair } from '../utils/geoCoords';
+
+/** Cancelled/refunded stays do not owe platform commission. */
+const isActiveForCommission = (b) =>
+  b && !['cancelled', 'no_show'].includes(b.status) && b.payment_status !== 'refunded';
+
+/** Commission counts toward totals only after check-in balance sync. */
+const hasRealizedCommission = (b) =>
+  isActiveForCommission(b) && (b.balance_synced === 1 || b.balance_synced === true);
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -99,8 +109,10 @@ const AdminDashboard = () => {
       const h = res.data.hotel;
       setHotel(h);
       setDescription(h.description || '');
-      setLatitude(parseFloat(h.latitude) || null);
-      setLongitude(parseFloat(h.longitude) || null);
+      const lat = h.latitude != null && h.latitude !== '' ? Number(h.latitude) : null;
+      const lng = h.longitude != null && h.longitude !== '' ? Number(h.longitude) : null;
+      setLatitude(Number.isFinite(lat) ? lat : null);
+      setLongitude(Number.isFinite(lng) ? lng : null);
       setCity(h.city || '');
 
       const parsedImages = parseHotelImages(h.image);
@@ -128,12 +140,18 @@ const AdminDashboard = () => {
         const bookings = bookingsRes.data.bookings || [];
         setHotelBookings(bookings);
 
-        const onlinePaid = bookings.filter(b => b?.payment_status === 'paid');
-        const cashBookings = bookings.filter(b => b?.payment_status !== 'paid' && b?.status !== 'cancelled' && b?.status !== 'pending');
+        const onlinePaid = bookings.filter(
+          (b) => b?.payment_status === 'paid' && isActiveForCommission(b)
+        );
+        const cashBookings = bookings.filter(
+          (b) => b?.payment_status !== 'paid' && b?.status !== 'cancelled' && b?.status !== 'pending'
+        );
 
         const onlineRevenueTotal = onlinePaid.reduce((sum, b) => sum + Number(b?.total_amount || 0), 0);
         const cashRevenueTotal = cashBookings.reduce((sum, b) => sum + Number(b?.total_amount || 0), 0);
-        const commissionTotal = bookings.reduce((sum, b) => sum + Number(b?.commission_amount || 0), 0);
+        const commissionTotal = bookings
+          .filter(hasRealizedCommission)
+          .reduce((sum, b) => sum + Number(b?.commission_amount || 0), 0);
 
         const roomList = roomsRes.data.rooms || [];
         const totalRooms = roomList.length;
@@ -188,14 +206,31 @@ const AdminDashboard = () => {
         finalImages = [...finalImages, ...compressed];
       }
 
+      const coords = normalizeCoordPair(latitude, longitude);
+      let saveCity = city;
+      let saveAddress = hotel?.address;
+      let saveCountry = hotel?.country;
+      if (coords.latitude != null && coords.longitude != null) {
+        try {
+          const place = await reverseGeocode(coords.latitude, coords.longitude);
+          if (place && isGeocodePlausible(place, coords.latitude, coords.longitude)) {
+            if (place.city) saveCity = place.city;
+            if (place.address) saveAddress = place.address;
+            if (place.country) saveCountry = place.country;
+          }
+        } catch (geocodeErr) {
+          console.warn('Could not sync address from map pin:', geocodeErr);
+        }
+      }
+
       const payload = {
         ...hotel,
         description,
-        latitude,
-        longitude,
-        city,
-        country: hotel?.country,
-        address: hotel?.address,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        city: saveCity,
+        country: saveCountry,
+        address: saveAddress,
         image: JSON.stringify(imagePreviews)
       };
 
@@ -203,9 +238,18 @@ const AdminDashboard = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      setHotel(res.data.hotel);
+      const saved = res.data.hotel;
+      setHotel(saved);
+      setCity(saved.city || '');
+      if (saved.address) {
+        setHotel((prev) => (prev ? { ...prev, address: saved.address, city: saved.city, country: saved.country } : prev));
+      }
+      const savedLat = saved.latitude != null && saved.latitude !== '' ? Number(saved.latitude) : null;
+      const savedLng = saved.longitude != null && saved.longitude !== '' ? Number(saved.longitude) : null;
+      setLatitude(Number.isFinite(savedLat) ? savedLat : null);
+      setLongitude(Number.isFinite(savedLng) ? savedLng : null);
       setImages([]);
-      setImagePreviews(parseHotelImages(res.data.hotel.image).map(img => getImageUrl(img)));
+      setImagePreviews(parseHotelImages(saved.image).map(img => getImageUrl(img)));
       setIsEditing(false);
       showNotification('Profile updated successfully');
     } catch (err) {
@@ -461,19 +505,42 @@ const AdminDashboard = () => {
                  <tbody className="divide-y text-[13px]">
                    {hotelBookings.map((b) => (
                      <tr key={b.id} className="hover:bg-[#F8FAFC] divide-x">
-                       <td className="p-4 font-mono text-[11px] text-[#64748B]">{b.booking_reference}</td>
+                       <td className="p-4 font-mono text-[11px] text-[#64748B]">
+                         <div className="flex flex-wrap items-center gap-1.5">
+                           <span>{b.booking_reference}</span>
+                           {Number(b.extension_nights) > 0 && (
+                             <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-100 text-[#1B2B41] border border-gray-200 font-sans">
+                               Extended +{b.extension_nights}n
+                             </span>
+                           )}
+                         </div>
+                       </td>
                        <td className="p-4">
                          <p className="font-bold text-[#1B2B41]">{b.guest_user_name || b.guest_name}</p>
-                         <p className="text-[10px] text-[#A0AEC0]">{new Date(b.check_in_date).toLocaleDateString()}</p>
+                         <p className="text-[10px] text-[#A0AEC0]">
+                           {new Date(b.check_in_date).toLocaleDateString()}
+                           {' – '}
+                           {new Date(b.check_out_date).toLocaleDateString()}
+                         </p>
                        </td>
                        <td className="p-4 uppercase text-[10px] font-bold text-[#64748B]">{b.payment_method || 'N/A'}</td>
                        <td className="p-4 font-bold">Rs. {Number(b.total_amount).toLocaleString()}</td>
-                       <td className="p-4 font-bold text-[#607AFB]">Rs. {Number(b.commission_amount || 0).toLocaleString()}</td>
+                       <td className="p-4 font-bold text-[#607AFB]">
+                         {isActiveForCommission(b)
+                           ? `Rs. ${Number(b.commission_amount || 0).toLocaleString()}`
+                           : '—'}
+                       </td>
                        <td className="p-4 font-bold text-[#108548]">
-                         Rs. {(Number(b.total_amount) - Number(b.commission_amount || 0)).toLocaleString()}
+                         {isActiveForCommission(b)
+                           ? `Rs. ${(Number(b.total_amount) - Number(b.commission_amount || 0)).toLocaleString()}`
+                           : '—'}
                        </td>
                        <td className="p-4">
-                         {b.balance_synced ? (
+                         {b.status === 'cancelled' ? (
+                           <span className="text-[9px] font-black uppercase text-[#B91C1C]">Cancelled</span>
+                         ) : b.payment_status === 'refunded' ? (
+                           <span className="text-[9px] font-black uppercase text-[#B91C1C]">Refunded</span>
+                         ) : b.balance_synced ? (
                            <span className="text-[9px] font-black uppercase text-[#108548] flex items-center gap-1">
                              <span className="material-symbols-outlined text-[12px]">check_circle</span>
                              Accounted

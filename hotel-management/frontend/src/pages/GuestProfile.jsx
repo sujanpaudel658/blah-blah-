@@ -32,11 +32,6 @@ const GuestProfile = () => {
       return;
     }
     const parsed = JSON.parse(raw);
-    if (parsed.role !== 'guest') {
-      if (parsed.role === 'admin') navigate('/admin/settings');
-      else navigate('/superadmin/dashboard');
-      return;
-    }
     setUser(parsed);
     setFormData((prev) => ({
       ...prev,

@@ -2,18 +2,93 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
 import Footer from "../components/Footer";
 import { API_URL } from "../config/api";
-import { getImageUrl } from "../utils/helpers";
+import { getImageUrl, parseHotelImages } from "../utils/helpers";
+import {
+  formatHotelLocationShort,
+  formatHotelLocationFull,
+  enrichHotelLocationFromCoords,
+  enrichHotelsList,
+  withNormalizedCoords
+} from "../utils/hotelLocation";
+import { hasValidMapCoords } from "../utils/geoCoords";
 
-// react-leaflet default marker icons
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+/** First stored hotel cover URL, or null if none uploaded. */
+const getHotelCoverSrc = (hotel) => {
+  if (!hotel?.image) return null;
+  const images = parseHotelImages(hotel.image);
+  const first = images[0];
+  return first ? getImageUrl(first) : null;
+};
+
+const groupSearchRoomsByHotel = (roomRows) => {
+  const grouped = (roomRows || []).reduce((acc, room) => {
+    const hotelId = room.hotel_id;
+    if (!acc[hotelId]) {
+      let parsedAmenities = [];
+      if (room.amenities) {
+        try {
+          parsedAmenities =
+            typeof room.amenities === 'string'
+              ? JSON.parse(room.amenities)
+              : Array.isArray(room.amenities)
+                ? room.amenities
+                : [];
+        } catch {
+          parsedAmenities = [];
+        }
+      }
+      acc[hotelId] = {
+        id: room.hotel_id,
+        name: room.hotel_name,
+        image: room.hotel_image,
+        city: room.hotel_city,
+        address: room.hotel_address || '',
+        country: room.hotel_country || '',
+        latitude: room.hotel_latitude != null ? Number(room.hotel_latitude) : null,
+        longitude: room.hotel_longitude != null ? Number(room.hotel_longitude) : null,
+        startingPrice: Number(room.base_price),
+        totalUnits: 0,
+        amenities: Array.isArray(parsedAmenities) ? parsedAmenities : [],
+        rating: room.rating
+      };
+    }
+    acc[hotelId].totalUnits += 1;
+    if (Number(room.base_price) < acc[hotelId].startingPrice) {
+      acc[hotelId].startingPrice = Number(room.base_price);
+    }
+    return acc;
+  }, {});
+  return Object.values(grouped);
+};
+
+const filterHotelsByLocationTerm = (hotels, locationTerm) => {
+  const term = String(locationTerm || '').trim().toLowerCase();
+  if (!term) return hotels;
+  return hotels.filter((h) => {
+    const hay = [h.city, h.address, h.country, h.name]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return hay.includes(term);
+  });
+};
+
+const mapPublicHotelToCard = (h) => ({
+  id: h.id,
+  name: h.name,
+  image: h.image,
+  city: h.city,
+  address: h.address || '',
+  country: h.country || '',
+  latitude: h.latitude != null ? Number(h.latitude) : null,
+  longitude: h.longitude != null ? Number(h.longitude) : null,
+  startingPrice: 0,
+  totalUnits: 0,
+  amenities: [],
+  rating: h.rating,
+  description: h.description
 });
 
 const Home = () => {
@@ -62,15 +137,48 @@ const Home = () => {
   }, []);
 
   const handleHotelClick = async (hotel) => {
-    setSelectedHotel(hotel);
     setShowModal(true);
-    
+    setSelectedHotel(hotel);
+
+    try {
+      const hotelRes = await axios.get(`${API_URL}/hotels/${hotel.id}`);
+      if (hotelRes.data?.success && hotelRes.data.hotel) {
+        const h = hotelRes.data.hotel;
+        let merged = {
+          ...hotel,
+          name: h.name ?? hotel.name,
+          city: h.city ?? hotel.city,
+          address: h.address ?? hotel.address,
+          country: h.country ?? hotel.country,
+          description: h.description ?? hotel.description,
+          phone: h.phone ?? hotel.phone,
+          email: h.email ?? hotel.email,
+          image: h.image ?? hotel.image,
+          rating: h.rating ?? hotel.rating,
+          latitude: h.latitude != null ? Number(h.latitude) : hotel.latitude,
+          longitude: h.longitude != null ? Number(h.longitude) : hotel.longitude
+        };
+        merged = await enrichHotelLocationFromCoords(merged);
+        setSelectedHotel(merged);
+      } else {
+        setSelectedHotel(await enrichHotelLocationFromCoords(hotel));
+      }
+    } catch (err) {
+      console.error('Hotel detail fetch error:', err);
+      setSelectedHotel(await enrichHotelLocationFromCoords(hotel));
+    }
+
     try {
       const roomRes = await axios.get(`${API_URL}/rooms/search?hotelId=${hotel.id}&checkIn=${bookingDates.checkIn}&checkOut=${bookingDates.checkOut}`);
       if (roomRes.data.success) {
-        const roomsByType = roomRes.data.rooms.reduce((acc, r) => {
-          if (!acc[r.room_type_id]) acc[r.room_type_id] = { ...r, count: 0 };
-          acc[r.room_type_id].count += 1;
+        const hotelIdNum = Number(hotel.id);
+        const forHotel = (roomRes.data.rooms || []).filter(
+          (r) => Number(r.hotel_id) === hotelIdNum
+        );
+        const roomsByType = forHotel.reduce((acc, r) => {
+          const key = `${r.hotel_id}-${r.room_type_id}`;
+          if (!acc[key]) acc[key] = { ...r, count: 0 };
+          acc[key].count += 1;
           return acc;
         }, {});
         setHotelRooms(Object.values(roomsByType));
@@ -119,41 +227,31 @@ const Home = () => {
       const data = await response.json();
 
       if (data.success) {
-        const groupedByHotel = data.rooms.reduce((acc, room) => {
-          const hotelId = room.hotel_id;
-          if (!acc[hotelId]) {
-            let parsedAmenities = [];
-            if (room.amenities) {
-              try {
-                parsedAmenities = typeof room.amenities === 'string' 
-                  ? JSON.parse(room.amenities) 
-                  : (Array.isArray(room.amenities) ? room.amenities : []);
-              } catch (e) {
-                parsedAmenities = [];
-              }
-            }
+        const loc = String(params.location || '').trim();
+        let hotelList = groupSearchRoomsByHotel(data.rooms);
 
-            acc[hotelId] = {
-              id: room.hotel_id,
-              name: room.hotel_name,
-              image: room.hotel_image,
-              city: room.hotel_city,
-              address: room.hotel_address || '',
-              country: room.hotel_country || '',
-              startingPrice: Number(room.base_price),
-              totalUnits: 0,
-              amenities: Array.isArray(parsedAmenities) ? parsedAmenities : [],
-              rating: room.rating
-            };
+        if (hotelList.length === 0 && loc) {
+          const noDatesQuery = new URLSearchParams({
+            location: loc,
+            guests: params.guests || ''
+          });
+          const retryRes = await fetch(`${API_URL}/rooms/search?${noDatesQuery}`);
+          const retryData = await retryRes.json();
+          if (retryData.success) {
+            hotelList = groupSearchRoomsByHotel(retryData.rooms);
           }
-          acc[hotelId].totalUnits++;
-          if (Number(room.base_price) < acc[hotelId].startingPrice) {
-            acc[hotelId].startingPrice = Number(room.base_price);
-          }
-          return acc;
-        }, {});
+        }
 
-        setRooms(Object.values(groupedByHotel));
+        if (hotelList.length === 0 && loc) {
+          const hotelsRes = await fetch(`${API_URL}/hotels`);
+          const hotelsData = await hotelsRes.json();
+          if (hotelsData.success) {
+            hotelList = filterHotelsByLocationTerm(hotelsData.hotels, loc).map(mapPublicHotelToCard);
+          }
+        }
+
+        const located = await enrichHotelsList(hotelList);
+        setRooms(located);
         if (shouldScroll) {
           setTimeout(() => {
             const resultsNode = document.getElementById('search-results');
@@ -390,17 +488,26 @@ const Home = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                {rooms.map(hotel => (
+                {rooms.map((hotel) => {
+                  const coverSrc = getHotelCoverSrc(hotel);
+                  return (
                     <div key={hotel.id} 
                       onClick={() => handleHotelClick(hotel)}
                       className="border-2 border-[#E8E4DE] bg-white flex flex-col sm:flex-row hover:border-[#C4993E] hover:shadow-[0_20px_40px_-20px_rgba(0,0,0,0.1)] transition-all duration-500 rounded-[2rem] overflow-hidden group cursor-pointer"
                     >
-                      <div className="w-full sm:w-[280px] h-[280px] sm:h-auto overflow-hidden relative">
-                        <img
-                          src={hotel.image || 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=500'}
-                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                          alt={hotel.name}
-                        />
+                      <div className="w-full sm:w-[280px] h-[280px] sm:h-auto min-h-[280px] overflow-hidden relative bg-[#F1F1F1]">
+                        {coverSrc ? (
+                          <img
+                            src={coverSrc}
+                            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                            alt={hotel.name}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
+                            <span className="material-symbols-outlined text-5xl">image</span>
+                            <p className="text-[10px] font-bold uppercase tracking-widest mt-2 text-slate-500">No photo</p>
+                          </div>
+                        )}
                         <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-[#E8E4DE] flex items-center gap-1.5">
                           <span className="material-symbols-outlined text-[14px] text-[#C4993E] fill-1">star</span>
                           <span className="text-[12px] font-bold text-[#1A2332]">{Number(hotel.rating || 0).toFixed(1)}</span>
@@ -412,15 +519,14 @@ const Home = () => {
                             <h3 className="text-xl font-bold text-[#1A2332] leading-tight">{hotel.name}</h3>
                             <div className="flex items-start gap-1.5 text-[#6B7B8D] text-[14px] font-medium leading-snug">
                               <span className="material-symbols-outlined text-base text-[#C4993E] shrink-0 mt-0.5">location_on</span>
-                              <span>
-                                {(hotel.address && String(hotel.address).trim()) ||
-                                  [hotel.city || hotel.hotel_city, hotel.country || 'Nepal'].filter(Boolean).join(', ')}
-                              </span>
+                              <span>{formatHotelLocationShort(hotel)}</span>
                             </div>
                           </div>
                           <div className="text-right">
                             <p className="text-[11px] font-bold text-[#8896A6] uppercase tracking-wider mb-0.5">Starting from</p>
-                            <p className="text-2xl font-black text-[#1A2332] tracking-tight">NPR {hotel.startingPrice.toLocaleString()}</p>
+                            <p className="text-2xl font-black text-[#1A2332] tracking-tight">
+                              {hotel.startingPrice > 0 ? `NPR ${hotel.startingPrice.toLocaleString()}` : 'On request'}
+                            </p>
                             <p className="text-[11px] font-bold text-[#C4993E] uppercase tracking-widest">per night</p>
                           </div>
                         </div>
@@ -442,7 +548,9 @@ const Home = () => {
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2D8659] opacity-75"></span>
                               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#2D8659]"></span>
                             </div>
-                            <span className="text-[13px] font-bold text-[#2D8659] uppercase tracking-wide">{hotel.totalUnits} rooms free</span>
+                            <span className="text-[13px] font-bold text-[#2D8659] uppercase tracking-wide">
+                              {hotel.totalUnits > 0 ? `${hotel.totalUnits} rooms free` : 'Check availability'}
+                            </span>
                           </div>
                           <button
                             onClick={(e) => {
@@ -456,7 +564,8 @@ const Home = () => {
                         </div>
                       </div>
                     </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -568,25 +677,48 @@ const Home = () => {
               </div>
 
               <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
-                <div className="h-[400px] md:h-[500px] relative">
-                  <img 
-                    src={selectedHotel.image ? (selectedHotel.image.startsWith('[') ? JSON.parse(selectedHotel.image)[0] : selectedHotel.image) : 'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=1200'} 
-                    className="w-full h-full object-cover" 
-                    alt={selectedHotel.name} 
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#FAF8F5] via-transparent to-transparent"></div>
-                  <div className="absolute bottom-12 left-12 right-12">
-                    <div className="flex items-center gap-3 mb-4">
-                      <span className="bg-[#C4993E] text-white px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest">Premium Selection</span>
-                      <div className="flex items-center gap-1 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/20 shadow-xl">
-                        <span className="material-symbols-outlined text-[14px] text-yellow-500 fill-1">star</span>
-                        <span className="text-[12px] font-black text-[#1A2332]">{Number(selectedHotel.rating || 0).toFixed(1)}</span>
+                <div className="h-[400px] md:h-[500px] relative bg-slate-100">
+                  {getHotelCoverSrc(selectedHotel) ? (
+                    <>
+                      <img
+                        src={getHotelCoverSrc(selectedHotel)}
+                        className="w-full h-full object-cover"
+                        alt={selectedHotel.name}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#FAF8F5] via-transparent to-transparent" />
+                      <div className="absolute bottom-12 left-12 right-12">
+                        <div className="flex items-center gap-3 mb-4">
+                          <span className="bg-[#C4993E] text-white px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest">Premium Selection</span>
+                          <div className="flex items-center gap-1 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/20 shadow-xl">
+                            <span className="material-symbols-outlined text-[14px] text-yellow-500 fill-1">star</span>
+                            <span className="text-[12px] font-black text-[#1A2332]">{Number(selectedHotel.rating || 0).toFixed(1)}</span>
+                          </div>
+                        </div>
+                        <h1 className="text-4xl md:text-6xl font-black text-[#1A2332] tracking-tighter" style={{ fontFamily: "'Playfair Display', serif" }}>
+                          {selectedHotel.name}
+                        </h1>
                       </div>
-                    </div>
-                    <h1 className="text-4xl md:text-6xl font-black text-[#1A2332] tracking-tighter" style={{ fontFamily: "'Playfair Display', serif" }}>
-                      {selectedHotel.name}
-                    </h1>
-                  </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
+                        <span className="material-symbols-outlined text-8xl">image</span>
+                        <p className="text-xs font-bold uppercase tracking-widest mt-3 text-slate-500">No photo uploaded</p>
+                      </div>
+                      <div className="absolute bottom-0 left-0 right-0 px-12 py-8 bg-[#FAF8F5] border-t border-[#E8E4DE]">
+                        <div className="flex items-center gap-3 mb-4">
+                          <span className="bg-[#C4993E] text-white px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest">Premium Selection</span>
+                          <div className="flex items-center gap-1 bg-[#F4F3F0] px-3 py-1.5 rounded-full border border-[#E8E4DE]">
+                            <span className="material-symbols-outlined text-[14px] text-yellow-500 fill-1">star</span>
+                            <span className="text-[12px] font-black text-[#1A2332]">{Number(selectedHotel.rating || 0).toFixed(1)}</span>
+                          </div>
+                        </div>
+                        <h1 className="text-4xl md:text-6xl font-black text-[#1A2332] tracking-tighter" style={{ fontFamily: "'Playfair Display', serif" }}>
+                          {selectedHotel.name}
+                        </h1>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="p-12 md:p-16 grid grid-cols-1 lg:grid-cols-3 gap-16">
@@ -605,7 +737,7 @@ const Home = () => {
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {hotelRooms.length > 0 ? hotelRooms.map(room => (
-                          <div key={room.id} className="bg-white border-2 border-[#E8E4DE] p-8 rounded-[2rem] hover:border-[#C4993E] transition-all group">
+                          <div key={`${room.hotel_id}-${room.room_type_id}`} className="bg-white border-2 border-[#E8E4DE] p-8 rounded-[2rem] hover:border-[#C4993E] transition-all group">
                             <div className="flex justify-between items-start mb-6">
                               <div>
                                 <h4 className="text-lg font-black text-[#1A2332] tracking-tight">{room.type_name}</h4>
@@ -688,7 +820,7 @@ const Home = () => {
                       <div className="space-y-4">
                         <div className="p-4 bg-[#F4F3F0] border border-[#E8E4DE] rounded-2xl">
                           <p className="text-[9px] font-black text-[#C4993E] uppercase tracking-[0.1em] mb-1">Where to find us</p>
-                          <p className="text-[14px] font-bold">{selectedHotel.city}, {selectedHotel.address}</p>
+                          <p className="text-[14px] font-bold">{formatHotelLocationFull(selectedHotel)}</p>
                         </div>
                         <div className="p-4 bg-[#F4F3F0] border border-[#E8E4DE] rounded-2xl">
                           <p className="text-[9px] font-black text-[#C4993E] uppercase tracking-[0.1em] mb-1">Get in touch</p>
@@ -706,18 +838,23 @@ const Home = () => {
                     </div>
 
                     <div className="bg-white border-2 border-[#E8E4DE] p-4 rounded-[2.5rem] h-[300px] overflow-hidden relative group">
-                       {selectedHotel.latitude && selectedHotel.longitude ? (
+                       {hasValidMapCoords(selectedHotel.latitude, selectedHotel.longitude) ? (
+                         (() => {
+                           const pin = withNormalizedCoords(selectedHotel);
+                           return (
                          <MapContainer 
-                          key={selectedHotel.id}
-                          center={[Number(selectedHotel.latitude), Number(selectedHotel.longitude)]} 
-                          zoom={15} 
+                          key={`${selectedHotel.id}-${pin.latitude}-${pin.longitude}`}
+                          center={[pin.latitude, pin.longitude]} 
+                          zoom={16} 
                           style={{ height: '100%', width: '100%' }}
                           scrollWheelZoom={false}
                           className="rounded-[2rem] z-0"
                          >
                            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                           <Marker position={[Number(selectedHotel.latitude), Number(selectedHotel.longitude)]} />
+                           <Marker position={[pin.latitude, pin.longitude]} />
                          </MapContainer>
+                           );
+                         })()
                        ) : (
                          <div className="w-full h-full bg-[#F4F3F0] rounded-[2rem] flex flex-col items-center justify-center p-8 text-center border border-dashed border-[#D8D4CE]">
                            <div className="w-14 h-14 bg-white rounded-full flex items-center justify-center mb-4 shadow-sm">
@@ -726,7 +863,7 @@ const Home = () => {
                            <h5 className="text-[14px] font-black text-[#1A2332] uppercase tracking-widest mb-2">Map Unavailable</h5>
                            <p className="text-[11px] font-bold text-[#8896A6] uppercase tracking-wide leading-relaxed">
                              Accurate coordinates have not yet been verified for this property. <br />
-                             <span className="text-[#C4993E]">{selectedHotel.address}, {selectedHotel.city}</span>
+                             <span className="text-[#C4993E]">{formatHotelLocationFull(selectedHotel)}</span>
                            </p>
                          </div>
                        )}

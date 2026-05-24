@@ -1,15 +1,14 @@
-﻿export function mapHotelFromApi(hotel) {
+﻿import { formatHotelLocationShort, withDisplayLocation } from '../../utils/hotelLocation';
+
+export function mapHotelFromApi(hotel) {
   let hotelImages = [];
   if (hotel.image) {
     try { hotelImages = JSON.parse(hotel.image); }
     catch (e) { hotelImages = [hotel.image]; }
   }
-  const locationLine =
-    (hotel.address && String(hotel.address).trim()) ||
-    [hotel.city, hotel.country].filter(Boolean).join(', ') ||
-    '';
+  const locationLine = formatHotelLocationShort(hotel);
 
-  return {
+  return withDisplayLocation({
     id: hotel.id,
     title: hotel.name,
     city: hotel.city,
@@ -22,7 +21,7 @@
     latitude: hotel.latitude,
     longitude: hotel.longitude,
     rating: hotel.rating
-  };
+  });
 }
 
 export function getMultiRoomGroupKey(bookingReference) {
@@ -84,26 +83,33 @@ export function getEditBookingGuestBounds(booking) {
 export function mapGroupedRoomSearchToHotel(g) {
   const images = g.image ? [g.image] : [];
   const price = Math.round(Number(g.startingPrice) || 0);
-  const locationLine =
-    (g.address && String(g.address).trim()) ||
-    [g.city, g.country].filter(Boolean).join(', ') ||
-    g.city ||
-    '';
-  return {
+  const mapped = withDisplayLocation({
     id: g.id,
     title: g.name,
     city: g.city,
     country: g.country || '',
     address: g.address || '',
-    description: `${g.city || 'Nepal'} · from NPR ${price}`,
     images,
     fullDescription: '',
     latitude: g.latitude != null ? g.latitude : null,
     longitude: g.longitude != null ? g.longitude : null,
     rating: g.rating,
-    location: locationLine,
     startingPrice: g.startingPrice
-  };
+  });
+  const place = formatHotelLocationShort(mapped) || mapped.city || 'Nepal';
+  return { ...mapped, description: `${place} · from NPR ${price}` };
+}
+
+export function filterHotelsByLocationTerm(hotels, locationTerm) {
+  const term = String(locationTerm || '').trim().toLowerCase();
+  if (!term) return hotels || [];
+  return (hotels || []).filter((h) => {
+    const hay = [h.city, h.country, h.address, h.location, h.title, h.name]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return hay.includes(term);
+  });
 }
 
 export function groupRoomsByHotelFromSearch(roomRows) {

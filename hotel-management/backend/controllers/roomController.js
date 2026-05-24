@@ -430,11 +430,12 @@ exports.deleteRoom = async (req, res) => {
 
 exports.searchRooms = async (req, res) => {
     try {
-        const { location, guests, checkIn, checkOut } = req.query;
+        const { location, guests, checkIn, checkOut, hotelId } = req.query;
 
         let query = `
       SELECT r.*, rt.name as type_name, rt.base_price, rt.max_occupancy, rt.amenities, 
-             h.name as hotel_name, h.city as hotel_city, h.image as hotel_image, h.rating
+             h.name as hotel_name, h.city as hotel_city, h.address as hotel_address, h.country as hotel_country,
+             h.image as hotel_image, h.rating, h.latitude as hotel_latitude, h.longitude as hotel_longitude
       FROM rooms r
       JOIN room_types rt ON r.room_type_id = rt.id
       JOIN hotels h ON r.hotel_id = h.id
@@ -443,9 +444,21 @@ exports.searchRooms = async (req, res) => {
 
         const params = [];
 
+        const parsedHotelId = hotelId != null && String(hotelId).trim() !== ''
+            ? parseInt(String(hotelId), 10)
+            : NaN;
+        if (Number.isFinite(parsedHotelId) && parsedHotelId > 0) {
+            query += ` AND r.hotel_id = ?`;
+            params.push(parsedHotelId);
+        }
+
         if (location) {
-            query += ` AND (h.city LIKE ? OR h.name LIKE ?)`;
-            params.push(`%${location}%`, `%${location}%`);
+            const locTerm = String(location).trim();
+            if (locTerm) {
+                query += ` AND (h.city LIKE ? OR h.address LIKE ? OR h.country LIKE ? OR h.name LIKE ?)`;
+                const like = `%${locTerm}%`;
+                params.push(like, like, like, like);
+            }
         }
 
         if (guests) {

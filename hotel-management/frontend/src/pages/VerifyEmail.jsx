@@ -5,7 +5,7 @@ import { API_URL } from '../config/api';
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams();
-  const token = searchParams.get('token') || '';
+  const token = (searchParams.get('token') || '').trim();
   const [status, setStatus] = useState('loading');
   const [message, setMessage] = useState('');
 
@@ -48,6 +48,10 @@ export default function VerifyEmail() {
           <>
             <h1 className="text-lg font-semibold text-gray-900">Email verified</h1>
             <p className="mt-2 text-sm text-gray-600">{message}</p>
+            <p className="mt-3 text-xs text-gray-500">
+              Verification is saved in your account. You can sign in on localhost, another port, or your
+              network IP — no need to verify again.
+            </p>
             <Link
               to="/login"
               className="mt-6 inline-block rounded-md bg-[#C4993E] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#AE872E]"

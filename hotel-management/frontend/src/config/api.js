@@ -18,13 +18,23 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+const shouldForceAuthRedirect = () => {
+  const path = window.location.pathname || '';
+  return !path.startsWith('/payment/callback');
+};
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (!shouldForceAuthRedirect()) {
+      return Promise.reject(error);
+    }
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
     }
     if (error.response?.status === 403 && error.response?.data?.code === 'EMAIL_NOT_VERIFIED') {
       localStorage.removeItem('token');

@@ -115,7 +115,7 @@ const Signup = () => {
 
         <div className="relative z-10 px-12 pb-16 space-y-4">
           <div className="flex items-center gap-1">
-            {[...Array(5)].map((_, i) => <span key={i} className="text-[#C4993E] text-lg">★</span>)}
+            {[...Array(5)].map((_, i) => <span key={i} className="text-[#C4993E] text-lg"></span>)}
           </div>
           <p className="text-2xl font-bold text-white max-w-lg leading-snug" style={{ fontFamily: "'Playfair Display', serif" }}>
             "Booking through StayNepal was so easy. The process was smooth from start to finish."

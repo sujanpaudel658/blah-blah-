@@ -2,12 +2,13 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config({ path: path.join(__dirname, '.env'), override: true });
 const {
     processNoShows,
     processNoonCheckInRelease,
     processPayAtHotelNoShowAfterDeadline
 } = require('./services/noShow.service');
+const { startNotificationWorker } = require('./services/notificationQueue.service');
 
 const app = express();
 
@@ -63,6 +64,8 @@ if (process.env.NODE_ENV !== 'test') {
 
       processPayAtHotelNoShowAfterDeadline();
       setInterval(processPayAtHotelNoShowAfterDeadline, 5 * 60 * 1000);
+
+      startNotificationWorker();
   });
 }
 

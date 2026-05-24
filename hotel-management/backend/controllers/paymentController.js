@@ -7,6 +7,22 @@ const notificationService = require('../services/notification.service');
 const { setBookingStatus, setRoomStatus } = require('../services/statusTimeline.service');
 const { NOTIFICATION_TYPES, NOTIFICATION_PRIORITIES } = require('../constants/notification.constants');
 const notificationEvents = require('../services/notificationEvents.service');
+const { notifyHotelAdminsStayExtended } = require('../services/stayExtensionNotify.service');
+const { resolveFrontendBase } = require('../utils/resolveFrontendBase');
+
+function resolvePaymentClientOrigin(req) {
+    const fromBody = req.body?.clientOrigin;
+    const fromHeader = req.headers.origin;
+    let fromReferer = null;
+    if (req.headers.referer) {
+        try {
+            fromReferer = new URL(req.headers.referer).origin;
+        } catch {
+            fromReferer = null;
+        }
+    }
+    return resolveFrontendBase(fromBody || fromHeader || fromReferer);
+}
 
 function normalizeKhaltiKey(raw) {
     if (raw == null) return '';
@@ -472,10 +488,7 @@ const initiatePayment = async (req, res) => {
             });
         }
 
-        const clientOrigin = req.headers.origin 
-            || (req.headers.referer ? new URL(req.headers.referer).origin : null) 
-            || process.env.FRONTEND_URL 
-            || 'http://localhost:3000';
+        const clientOrigin = resolvePaymentClientOrigin(req);
 
         let paymentInit;
         try {
@@ -633,11 +646,7 @@ const initiatePayOnlineForBooking = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Invalid booking amount.' });
         }
 
-        const clientOrigin =
-            req.headers.origin ||
-            (req.headers.referer ? new URL(req.headers.referer).origin : null) ||
-            process.env.FRONTEND_URL ||
-            'http://localhost:3000';
+        const clientOrigin = resolvePaymentClientOrigin(req);
 
         const ciName =
             String(booking.guest_name || booking.booker_name || 'Guest').substring(0, 50);
@@ -822,7 +831,7 @@ const verifyPayment = async (req, res) => {
                     }
 
                     const extCommission = Math.round(extGross * PLATFORM_FEE_RATE * 100) / 100;
-                    await applyStayExtension(
+                    const { newCheckOutDate } = await applyStayExtension(
                         extConn,
                         { id: pr.booking_id, hotel_id: pr.hotel_id, payment_status: pr.payment_status },
                         addNights,
@@ -835,6 +844,15 @@ const verifyPayment = async (req, res) => {
                         ['completed', statusData.transaction_id, pr.payment_row_id]
                     );
                     await extConn.commit();
+                    try {
+                        await notifyHotelAdminsStayExtended({
+                            bookingId: pr.booking_id,
+                            additionalNights: addNights,
+                            newCheckOutDate
+                        });
+                    } catch (notifyErr) {
+                        console.error('[stay-extension] admin notify failed:', notifyErr.message);
+                    }
                     return res.json({
                         success: true,
                         message: 'Stay extension paid. Your new check-out date is updated.',
@@ -1086,29 +1104,48 @@ const refundPayment = async (req, res) => {
 };
 
 const cancelBooking = async (req, res) => {
+  const connection = await db.getConnection();
   try {
     const { bookingId, reason } = req.body;
-    const [bookingRows] = await db.query("SELECT status, payment_status, hotel_id, room_id, total_amount, user_id, booking_reference FROM bookings WHERE id = ?", [bookingId]);
-    
-    if (bookingRows.length === 0) return res.status(404).json({ success: false, message: 'Booking not found' });
+    await connection.beginTransaction();
+    const [bookingRows] = await connection.query(
+      `SELECT id, status, payment_status, hotel_id, room_id, total_amount, commission_amount,
+              balance_synced, user_id, booking_reference
+       FROM bookings WHERE id = ? FOR UPDATE`,
+      [bookingId]
+    );
+
+    if (bookingRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
     const booking = bookingRows[0];
 
     if (booking.user_id !== req.user.id && !['admin', 'superadmin'].includes(req.user.role)) {
+      await connection.rollback();
       return res.status(403).json({ success: false, message: 'You can only cancel your own booking.' });
     }
 
     if (booking.status === 'checked_in') {
+      await connection.rollback();
       return res.status(400).json({ success: false, message: 'CANCEL_DENIED: Cannot cancel an active stay.' });
     }
 
+    if (booking.status === 'cancelled') {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: 'Booking is already cancelled.' });
+    }
+
+    await reverseHotelBalanceOnCancel(connection, booking);
+
     if (booking.payment_status === 'paid') {
-      await db.query(
+      await connection.query(
         "INSERT INTO refund_requests (booking_id, user_id, hotel_id, amount, reason) VALUES (?, ?, ?, ?, ?)",
         [bookingId, req.user.id, booking.hotel_id, booking.total_amount, reason || 'Cancellation request']
       );
     }
 
-    await setBookingStatus(db, {
+    await setBookingStatus(connection, {
       bookingId,
       toStatus: 'cancelled',
       changedBy: req.user.id,
@@ -1120,7 +1157,7 @@ const cancelBooking = async (req, res) => {
     });
 
     if (booking.room_id) {
-      await setRoomStatus(db, {
+      await setRoomStatus(connection, {
         roomId: booking.room_id,
         toStatus: 'available',
         changedBy: req.user.id,
@@ -1129,6 +1166,8 @@ const cancelBooking = async (req, res) => {
         referenceId: bookingId
       });
     }
+
+    await connection.commit();
 
     await notificationEvents.notifyBookingCancelled({
       bookingId: Number(bookingId),
@@ -1139,7 +1178,10 @@ const cancelBooking = async (req, res) => {
 
     res.json({ success: true, message: booking.payment_status === 'paid' ? 'Booking cancelled. Refund request sent to SuperAdmin.' : 'Booking cancelled successfully.' });
   } catch (error) {
+    try { await connection.rollback(); } catch (_) { /* ignore */ }
     res.status(500).json({ success: false, message: 'Cancellation failed' });
+  } finally {
+    connection.release();
   }
 };
 
@@ -1386,9 +1428,15 @@ const confirmRefund = async (req, res) => {
     await connection.query("UPDATE refund_requests SET status = 'approved', approved_at = CURRENT_TIMESTAMP, approved_by = ? WHERE id = ?", [req.user.id, requestId]);
 
     const [bookingRows] = await connection.query(
-      "SELECT room_id, user_id, hotel_id, booking_reference FROM bookings WHERE id = ?",
+      `SELECT id, room_id, user_id, hotel_id, booking_reference, total_amount, commission_amount,
+              payment_status, balance_synced
+       FROM bookings WHERE id = ? FOR UPDATE`,
       [request.booking_id]
     );
+
+    if (bookingRows.length > 0) {
+      await reverseHotelBalanceOnCancel(connection, bookingRows[0]);
+    }
 
     await setBookingStatus(connection, {
       bookingId: request.booking_id,
@@ -1563,6 +1611,12 @@ const applyStayExtension = async (connection, booking, additionalNights, extGros
   const paid = booking.payment_status === 'paid';
   const hotelDelta = paid ? (Number(extGross) - Number(extCommission)) : -Number(extCommission);
   await connection.query('UPDATE hotels SET balance = balance + ? WHERE id = ?', [hotelDelta, booking.hotel_id]);
+
+  const [fresh] = await connection.query(
+    'SELECT check_out_date FROM bookings WHERE id = ? LIMIT 1',
+    [booking.id]
+  );
+  return { newCheckOutDate: fresh[0]?.check_out_date };
 };
 
 const updateHotelBalanceOnCheckIn = async (connection, bookingId) => {
@@ -1581,6 +1635,20 @@ const updateHotelBalanceOnCheckIn = async (connection, bookingId) => {
   }
 
   await connection.query('UPDATE bookings SET balance_synced = 1 WHERE id = ?', [bookingId]);
+};
+
+/** Undo check-in balance sync when a booking is cancelled or fully refunded. */
+const reverseHotelBalanceOnCancel = async (connection, booking) => {
+  if (!booking?.balance_synced) return;
+  const commission = Number(booking.commission_amount || 0);
+  const total = Number(booking.total_amount || 0);
+  if (booking.payment_status === 'paid') {
+    const netAmount = total - commission;
+    await connection.query('UPDATE hotels SET balance = balance - ? WHERE id = ?', [netAmount, booking.hotel_id]);
+  } else {
+    await connection.query('UPDATE hotels SET balance = balance + ? WHERE id = ?', [commission, booking.hotel_id]);
+  }
+  await connection.query('UPDATE bookings SET balance_synced = 0 WHERE id = ?', [booking.id]);
 };
 
 const extendStay = async (req, res) => {
@@ -1652,7 +1720,13 @@ const extendStay = async (req, res) => {
     const extCommission = Math.round(extGross * PLATFORM_FEE_RATE * 100) / 100;
 
     if (method === 'cash') {
-      await applyStayExtension(connection, booking, nights, extGross, extCommission);
+      const { newCheckOutDate } = await applyStayExtension(
+        connection,
+        booking,
+        nights,
+        extGross,
+        extCommission
+      );
       await connection.query(
         `INSERT INTO payments (booking_id, amount, payment_method, transaction_id, status, paid_at, notes)
          VALUES (?, ?, 'cash', ?, 'completed', CURRENT_TIMESTAMP, ?)`,
@@ -1660,6 +1734,15 @@ const extendStay = async (req, res) => {
       );
       await connection.commit();
       safeRelease();
+      try {
+        await notifyHotelAdminsStayExtended({
+          bookingId,
+          additionalNights: nights,
+          newCheckOutDate
+        });
+      } catch (notifyErr) {
+        console.error('[stay-extension] admin notify failed:', notifyErr.message);
+      }
       return res.json({
         success: true,
         method: 'cash',
@@ -1681,10 +1764,7 @@ const extendStay = async (req, res) => {
     await connection.commit();
     safeRelease();
 
-    const clientOrigin = req.headers.origin
-      || (req.headers.referer ? new URL(req.headers.referer).origin : null)
-      || process.env.FRONTEND_URL
-      || 'http://localhost:3000';
+    const clientOrigin = resolvePaymentClientOrigin(req);
 
     try {
       const paymentInit = await initializeKhaltiPayment({

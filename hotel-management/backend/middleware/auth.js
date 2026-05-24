@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
+const { isEmailVerified } = require('../utils/isEmailVerified');
 
 exports.protect = async (req, res, next) => {
   try {
@@ -12,7 +13,7 @@ exports.protect = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const [users] = await db.query(
-      'SELECT id, full_name, email, role, hotel_id, is_verified FROM users WHERE id = ?',
+      'SELECT id, full_name, email, role, hotel_id, is_verified, email_verified_at FROM users WHERE id = ?',
       [decoded.id]
     );
 
@@ -22,11 +23,7 @@ exports.protect = async (req, res, next) => {
 
     req.user = users[0];
 
-    const verified =
-      req.user.is_verified === true ||
-      req.user.is_verified === 1 ||
-      req.user.is_verified === '1';
-    if (!verified && req.user.role !== 'superadmin') {
+    if (!isEmailVerified(req.user) && req.user.role !== 'superadmin') {
       return res.status(403).json({
         success: false,
         message: 'Please verify your email to continue.',

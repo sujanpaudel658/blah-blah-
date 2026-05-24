@@ -66,6 +66,37 @@ const notifyPaymentFailed = async ({ bookingId, userId, hotelId, reason }) => {
   });
 };
 
+const notifyStayExtended = async ({
+  bookingId,
+  bookingReference,
+  userId,
+  hotelId,
+  guestName,
+  additionalNights,
+  newCheckOutDate,
+  message
+}) => {
+  const adminRecipients = await notificationService.getAdminRecipientsForHotel(hotelId);
+  const nightLabel =
+    Number(additionalNights) === 1 ? '1 night' : `${Number(additionalNights) || 0} nights`;
+  const body =
+    message ||
+    `${guestName || 'Guest'} extended ${nightLabel} — new checkout ${newCheckOutDate || 'updated'}.`;
+
+  return notificationService.enqueueEvent({
+    eventType: 'booking.stay_extended',
+    priority: 9,
+    payload: {
+      title: 'Stay extended',
+      message: body,
+      type: NOTIFICATION_TYPES.BOOKING,
+      referenceId: bookingId,
+      priority: NOTIFICATION_PRIORITIES.HIGH,
+      recipients: adminRecipients
+    }
+  });
+};
+
 const notifyPaymentSuccess = async ({ bookingId, userId, hotelId }) => {
   const adminRecipients = await notificationService.getAdminRecipientsForHotel(hotelId);
   const recipients = [
@@ -118,6 +149,24 @@ const notifyAdminAccountChanged = async ({ adminId, action }) => {
   });
 };
 
+const notifyHotelListingRejected = async ({ ownerId, hotelId, hotelName, reason }) => {
+  if (!ownerId) return null;
+  const name = hotelName || 'your property';
+  const detail =
+    reason && String(reason).trim()
+      ? String(reason).trim()
+      : 'You may review our partner requirements and submit a new application when ready.';
+  return notificationService.saveNotification({
+    userId: ownerId,
+    role: USER_ROLES.USER,
+    title: 'Partner listing not approved',
+    message: `Your listing request for "${name}" was not approved. ${detail}`,
+    type: NOTIFICATION_TYPES.SYSTEM,
+    referenceId: hotelId,
+    priority: NOTIFICATION_PRIORITIES.HIGH
+  });
+};
+
 const notifySystemAlert = async ({ title, message, referenceId = null }) => {
   const superAdmins = await notificationService.getSuperAdminRecipients();
   return notificationService.enqueueEvent({
@@ -137,9 +186,11 @@ const notifySystemAlert = async ({ title, message, referenceId = null }) => {
 module.exports = {
   notifyBookingCreated,
   notifyBookingCancelled,
+  notifyStayExtended,
   notifyPaymentFailed,
   notifyPaymentSuccess,
   notifyHotelCreated,
+  notifyHotelListingRejected,
   notifyAdminAccountChanged,
   notifySystemAlert
 };

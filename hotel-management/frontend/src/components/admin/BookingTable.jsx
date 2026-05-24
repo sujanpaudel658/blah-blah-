@@ -137,9 +137,19 @@ const BookingTable = ({
                                     <td>
                                         <div className="font-bold text-[#1B2B41]">{booking.guest_name}</div>
                                         <div className="text-[11px] text-[#64748B] mb-1">{booking.guest_email}</div>
-                                        <span className="text-[10px] font-bold bg-gray-100 px-1.5 py-0.5 rounded text-[#475569]">
-                                            REF: {booking.booking_reference}
-                                        </span>
+                                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                            <span className="text-[10px] font-bold bg-gray-100 px-1.5 py-0.5 rounded text-[#475569]">
+                                                REF: {booking.booking_reference}
+                                            </span>
+                                            {Number(booking.extension_nights) > 0 && (
+                                                <span
+                                                    className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-100 text-[#1B2B41] border border-gray-200"
+                                                    title={`Stay extended by ${booking.extension_nights} night(s)`}
+                                                >
+                                                    Extended +{booking.extension_nights}n
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td>
                                         <div className="font-semibold text-[#1B2B41]">
@@ -147,6 +157,9 @@ const BookingTable = ({
                                         </div>
                                         <div className="text-[11px] text-[#64748B] uppercase font-bold mt-0.5">
                                             {booking.total_nights} Nights / {booking.num_guests} Pers
+                                            {Number(booking.extension_nights) > 0 && (
+                                                <span className="text-[#1B2B41]"> · incl. extension</span>
+                                            )}
                                         </div>
                                     </td>
                                     <td>

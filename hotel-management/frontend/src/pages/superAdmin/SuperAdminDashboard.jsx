@@ -457,20 +457,25 @@ const SuperAdminDashboard = () => {
   };
 
   const handleDeletePendingHotel = async (hotelId) => {
-    if (!window.confirm('Delete this hotel request permanently? The owner stays a guest; they can submit again later if allowed.')) return;
+    if (!window.confirm('Reject this partner listing request? The applicant will be notified in-app and by email.')) return;
+    const reason = window.prompt('Optional message for the applicant (rejection reason):') || '';
     const token = localStorage.getItem('token');
     try {
       await axios.delete(`${API_URL}/superadmin/hotels/pending-review/${hotelId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        data: { reason: reason.trim() || undefined }
       });
-      setMessage({ text: 'Pending hotel request removed.', type: 'success' });
+      setMessage({
+        text: 'Partner request rejected. The applicant was notified in-app and by email (if mail is configured).',
+        type: 'success'
+      });
       setPendingReviewOpen(false);
       setPendingReviewData(null);
       setPendingReviewId(null);
       loadSystemData();
       setTimeout(() => setMessage({ text: '', type: '' }), 5000);
     } catch (err) {
-      setMessage({ text: err.response?.data?.message || 'Delete failed.', type: 'error' });
+      setMessage({ text: err.response?.data?.message || 'Rejection failed.', type: 'error' });
     }
   };
 

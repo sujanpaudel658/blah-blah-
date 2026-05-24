@@ -17,8 +17,20 @@ function normalizeEnvKey(raw) {
     return s;
 }
 
+/** Primary key (backward compatible). */
 function getKey() {
-    return normalizeEnvKey(process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY || '');
+    const keys = getApiKeys();
+    return keys[0] || '';
+}
+
+/** Primary first, then GEMINI_API_KEY_2 — used only when primary quota/rate limit fails. */
+function getApiKeys() {
+    const primary = normalizeEnvKey(process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY || '');
+    const secondary = normalizeEnvKey(process.env.GEMINI_API_KEY_2 || '');
+    const keys = [];
+    if (primary) keys.push(primary);
+    if (secondary && secondary !== primary) keys.push(secondary);
+    return keys;
 }
 
 function getModel() {
@@ -60,10 +72,108 @@ function appendContent(contents, role, text) {
     }
 }
 
+function isQuotaOrKeyLimitError(status, detail) {
+    if (status === 429) return true;
+    const msg = String(detail || '').toLowerCase();
+    return (
+        msg.includes('quota') ||
+        msg.includes('rate limit') ||
+        msg.includes('resource_exhausted') ||
+        msg.includes('exceeded')
+    );
+}
+
+async function requestGeminiModel(key, model, body) {
+    const url =
+        'https://generativelanguage.googleapis.com/v1beta/models/' +
+        model +
+        ':generateContent?key=' +
+        encodeURIComponent(key);
+
+    const res = await axios.post(url, body, {
+        timeout: getRequestTimeoutMs(),
+        headers: { 'Content-Type': 'application/json' }
+    });
+
+    const data = res.data || {};
+    const cand = data.candidates && data.candidates[0];
+    if (!cand) {
+        if (data.promptFeedback) {
+            console.error('Gemini empty candidates:', JSON.stringify(data.promptFeedback));
+        } else {
+            console.error('Gemini empty candidates (no promptFeedback in response)');
+        }
+        return { ok: false, reason: 'empty' };
+    }
+
+    if (cand.finishReason && cand.finishReason !== 'STOP' && cand.finishReason !== 'MAX_TOKENS') {
+        console.warn('Gemini finishReason:', cand.finishReason, cand.safetyRatings ? JSON.stringify(cand.safetyRatings) : '');
+    }
+
+    const txt = extractTextFromCandidate(cand);
+    if (!txt) {
+        console.warn('Gemini returned no text (finishReason:', cand.finishReason || 'n/a', ')');
+        return { ok: false, reason: 'empty' };
+    }
+
+    return { ok: true, text: txt };
+}
+
+async function askGeminiWithKey(key, keyIndex, modelsToTry, body) {
+    let quotaExhausted = false;
+    let keyInvalid = false;
+
+    for (let mi = 0; mi < modelsToTry.length; mi++) {
+        const model = modelsToTry[mi];
+        try {
+            const result = await requestGeminiModel(key, model, body);
+            if (result.ok) {
+                return { text: result.text };
+            }
+        } catch (e) {
+            const status = e.response && e.response.status;
+            const detail =
+                e.response && e.response.data
+                    ? JSON.stringify(e.response.data)
+                    : e.message;
+            console.error(`Gemini request failed (key#${keyIndex + 1}, ${model}) status=${status}:`, detail);
+
+            if (status === 401 || status === 403) {
+                keyInvalid = true;
+                break;
+            }
+
+            if (isQuotaOrKeyLimitError(status, detail)) {
+                quotaExhausted = true;
+                break;
+            }
+
+            const isLast = mi === modelsToTry.length - 1;
+            const retryable = status === 404 || status === 500 || status === 503;
+            if (!isLast && retryable) {
+                console.warn(`Gemini: trying next model (had status ${status} on ${model})…`);
+                continue;
+            }
+
+            const transientNet =
+                !e.response &&
+                (e.code === 'ECONNABORTED' || e.code === 'ETIMEDOUT' || e.code === 'ECONNRESET');
+            if (!isLast && transientNet) {
+                console.warn(`Gemini: network issue on ${model} — trying next model…`);
+                continue;
+            }
+        }
+    }
+
+    if (quotaExhausted) return { quotaExhausted: true };
+    if (keyInvalid) return { keyInvalid: true };
+    return null;
+}
+
 async function askGemini(systemPrompt, userPrompt, history) {
-    const key = getKey();
-    if (!key) {
-        console.warn('Gemini: no GEMINI_API_KEY / GOOGLE_AI_API_KEY in env (check backend/.env and restart server).');
+    const keys = getApiKeys();
+    if (!keys.length) {
+        console.warn('Gemini: no GEMINI_API_KEY / GEMINI_API_KEY_2 in env (check backend/.env and restart server).');
         return null;
     }
 
@@ -117,73 +227,24 @@ async function askGemini(systemPrompt, userPrompt, history) {
         }
     };
 
-    for (let mi = 0; mi < modelsToTry.length; mi++) {
-        const model = modelsToTry[mi];
-        const url =
-            'https://generativelanguage.googleapis.com/v1beta/models/' +
-            model +
-            ':generateContent?key=' +
-            encodeURIComponent(key);
-
-        try {
-            const res = await axios.post(url, body, {
-                timeout: getRequestTimeoutMs(),
-                headers: { 'Content-Type': 'application/json' }
-            });
-
-            const data = res.data || {};
-            const cand = data.candidates && data.candidates[0];
-            if (!cand) {
-                if (data.promptFeedback) {
-                    console.error('Gemini empty candidates:', JSON.stringify(data.promptFeedback));
-                } else {
-                    console.error('Gemini empty candidates (no promptFeedback in response)');
-                }
-                return null;
+    for (let ki = 0; ki < keys.length; ki++) {
+        const result = await askGeminiWithKey(keys[ki], ki, modelsToTry, body);
+        if (result && result.text) {
+            if (ki > 0) {
+                console.warn(`Gemini: response served by fallback key #${ki + 1}`);
             }
+            return result.text;
+        }
 
-            if (cand.finishReason && cand.finishReason !== 'STOP' && cand.finishReason !== 'MAX_TOKENS') {
-                console.warn('Gemini finishReason:', cand.finishReason, cand.safetyRatings ? JSON.stringify(cand.safetyRatings) : '');
-            }
-
-            const txt = extractTextFromCandidate(cand);
-            if (!txt) {
-                console.warn('Gemini returned no text (finishReason:', cand.finishReason || 'n/a', ')');
-                return null;
-            }
-
-            return txt;
-        } catch (e) {
-            const status = e.response && e.response.status;
-            const detail =
-                e.response && e.response.data
-                    ? JSON.stringify(e.response.data)
-                    : e.message;
-            console.error(`Gemini request failed (${model}) status=${status}:`, detail);
-
-            if (status === 401 || status === 403) {
-                console.error('Gemini API key invalid or forbidden — fix GEMINI_API_KEY in backend/.env');
-                return null;
-            }
-
-            const isLast = mi === modelsToTry.length - 1;
-            const retryable = status === 404 || status === 429 || status === 500 || status === 503;
-            if (!isLast && retryable) {
-                console.warn(`Gemini: trying next model (had status ${status} on ${model})…`);
-                continue;
-            }
-            const transientNet =
-                !e.response &&
-                (e.code === 'ECONNABORTED' || e.code === 'ETIMEDOUT' || e.code === 'ECONNRESET');
-            if (!isLast && transientNet) {
-                console.warn(`Gemini: network issue on ${model} — trying next model…`);
-                continue;
-            }
-            return null;
+        const hasFallback = ki < keys.length - 1;
+        if (hasFallback && result && (result.quotaExhausted || result.keyInvalid)) {
+            const reason = result.quotaExhausted ? 'quota/rate limit reached' : 'key rejected';
+            console.warn(`Gemini: primary key ${reason} — switching to GEMINI_API_KEY_2…`);
+            continue;
         }
     }
 
     return null;
 }
 
-module.exports = { askGemini, getKey };
+module.exports = { askGemini, getKey, getApiKeys };

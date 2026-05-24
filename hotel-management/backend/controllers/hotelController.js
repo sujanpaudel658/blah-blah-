@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const notificationEvents = require('../services/notificationEvents.service');
+const { resolveHotelLocationFields } = require('../utils/hotelLocation');
 
 exports.getPublicHotels = async (req, res) => {
   try {
@@ -91,20 +92,28 @@ exports.requestHotel = async (req, res) => {
 
     await connection.beginTransaction();
 
+    const resolvedLoc = await resolveHotelLocationFields({
+      city,
+      address,
+      country,
+      latitude,
+      longitude
+    });
+
     const [result] = await connection.query(
       `INSERT INTO hotels (name, address, city, country, phone, email, description, image, latitude, longitude, status, owner_id, listing_contract_accepted, listing_contract_accepted_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())`,
       [
         name,
-        address,
-        city,
-        country,
+        resolvedLoc.address,
+        resolvedLoc.city,
+        resolvedLoc.country,
         phone,
         email,
         description,
         image,
-        latitude !== undefined && latitude !== null ? latitude : null,
-        longitude !== undefined && longitude !== null ? longitude : null,
+        resolvedLoc.latitude,
+        resolvedLoc.longitude,
         'pending',
         userId
       ]

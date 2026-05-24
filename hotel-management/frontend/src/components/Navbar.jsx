@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_URL } from '../config/api';
 import { getImageUrl } from '../utils/helpers';
-import GuestNotificationBell from './GuestNotificationBell';
+import NotificationBell from './NotificationBell';
 
 const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSearch, hotelSuggestions = [] }) => {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -109,7 +109,7 @@ const Navbar = ({ user, onLogout, searchPlaceholder = "Search hotels...", onSear
           </div>
 
           <div className="flex items-center gap-3 sm:gap-5">
-            {user && !['admin', 'superadmin'].includes(user.role) && <GuestNotificationBell />}
+            {user && !['admin', 'superadmin'].includes(user.role) && <NotificationBell />}
             {user && (
               <div className="hidden sm:flex items-center gap-3">
                 {user.profileImage ? (

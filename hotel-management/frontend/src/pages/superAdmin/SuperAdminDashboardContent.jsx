@@ -70,7 +70,7 @@ const SuperAdminDashboardContent = ({
                       onClick={() => handleDeletePendingHotel(hotel.id)}
                       className="admin-button !bg-[#B91C1C] !text-white !text-[9px] px-5 py-3 tracking-[0.2em]"
                     >
-                      Delete request
+                      Reject request
                     </button>
                   </div>
                 </div>

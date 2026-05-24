@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS users (
   hotel_id INT NULL,
   verification_token VARCHAR(255),
   is_verified BOOLEAN DEFAULT FALSE,
+  email_verified_at DATETIME NULL,
   reset_token VARCHAR(255),
   reset_token_expiry DATETIME,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

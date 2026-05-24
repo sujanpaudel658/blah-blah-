@@ -286,3 +286,14 @@ body {
   background: var(--gold);
   border-radius: 10px;
 }
+
+/* Guest receipt print (BillModal) — prevent clipped flex rows */
+.receipt-print-root {
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.receipt-row-value {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}

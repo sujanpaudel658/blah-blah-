@@ -5,6 +5,13 @@ const path = require('path');
 const db = require('../config/db');
 const emailService = require('../services/email.service');
 const { resolveFrontendBase } = require('../utils/resolveFrontendBase');
+const { isEmailVerified } = require('../utils/isEmailVerified');
+const { markEmailVerified } = require('../utils/markEmailVerified');
+const {
+  findHotelAdmin,
+  demoteOtherHotelAdmins,
+  userManagesOtherHotel
+} = require('../utils/hotelAdmin');
 const crypto = require('crypto');
 
 const createToken = (payload) => jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
@@ -16,14 +23,15 @@ const formatUser = (user) => ({
   phone: user.phone,
   role: user.role,
   hotel_id: user.hotel_id,
-  profileImage: user.profile_image || null
+  profileImage: user.profile_image || null,
+  emailVerified: isEmailVerified(user)
 });
 
 const getRedirectPath = (role) => ({
   superadmin: '/superadmin/dashboard',
   admin: '/admin/dashboard'
 }[role] || '/guest/dashboard');
-
+           
 exports.signup = async (req, res) => {
   try {
     const { fullName, email, phone, password } = req.body;
@@ -42,14 +50,25 @@ exports.signup = async (req, res) => {
     const verificationTokenHash = await bcrypt.hash(verificationToken, 10);
 
     const [hotels] = await db.query('SELECT id FROM hotels WHERE email = ?', [email]);
-    const isHotelAdmin = hotels.length > 0;
-    const role = isHotelAdmin ? 'admin' : 'guest';
-    const hotelId = isHotelAdmin ? hotels[0].id : null;
+    let role = 'guest';
+    let hotelId = null;
+    if (hotels.length > 0) {
+      const targetHotelId = hotels[0].id;
+      const existingManager = await findHotelAdmin(db, targetHotelId);
+      if (!existingManager) {
+        role = 'admin';
+        hotelId = targetHotelId;
+      }
+    }
 
     const [result] = await db.query(
       'INSERT INTO users (full_name, email, phone, password, role, hotel_id, verification_token, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [fullName, email, phone, hashedPass, role, hotelId, verificationTokenHash, false]
     );
+
+    if (role === 'admin' && hotelId) {
+      await demoteOtherHotelAdmins(db, hotelId, result.insertId);
+    }
 
     const frontendBase = resolveFrontendBase(req.body.clientOrigin);
     const emailResult = await emailService.sendVerificationEmail(
@@ -152,9 +171,7 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    const verified =
-      user.is_verified === true || user.is_verified === 1 || user.is_verified === '1';
-    if (!verified && user.role !== 'superadmin') {
+    if (!isEmailVerified(user) && user.role !== 'superadmin') {
       return res.status(403).json({
         success: false,
         message:
@@ -162,6 +179,12 @@ exports.login = async (req, res) => {
         requiresEmailVerification: true,
         email: user.email
       });
+    }
+
+    // Legacy rows: is_verified without timestamp — lock in lifetime verification.
+    if (!user.email_verified_at && (user.is_verified === 1 || user.is_verified === true)) {
+      await markEmailVerified(user.id);
+      user.email_verified_at = new Date();
     }
 
     const token = createToken({ id: user.id, email: user.email, role: user.role });
@@ -195,9 +218,12 @@ exports.googleAuth = async (req, res) => {
     const { email, name, sub: googleId } = decoded;
 
     const [hotels] = await db.query('SELECT id FROM hotels WHERE email = ?', [email]);
-    const isHotelAdmin = hotels.length > 0;
-    const hotelId = isHotelAdmin ? hotels[0].id : null;
-    const role = isHotelAdmin ? 'admin' : 'guest';
+    const targetHotelId = hotels.length > 0 ? hotels[0].id : null;
+    let canBeHotelAdmin = false;
+    if (targetHotelId) {
+      const existingManager = await findHotelAdmin(db, targetHotelId);
+      canBeHotelAdmin = !existingManager;
+    }
 
     const [existingUsers] = await db.query(
       'SELECT * FROM users WHERE email = ? OR google_id = ?',
@@ -214,24 +240,40 @@ exports.googleAuth = async (req, res) => {
         await db.query('UPDATE users SET google_id = ? WHERE id = ?', [googleId, userId]);
       }
 
-      if (isHotelAdmin && user.role !== 'admin') {
-        await db.query('UPDATE users SET role = ?, hotel_id = ? WHERE id = ?', [role, hotelId, userId]);
-        user.role = role;
-        user.hotel_id = hotelId;
+      if (
+        canBeHotelAdmin &&
+        targetHotelId &&
+        user.role !== 'admin' &&
+        !(await userManagesOtherHotel(db, userId, targetHotelId))
+      ) {
+        await demoteOtherHotelAdmins(db, targetHotelId, userId);
+        await db.query('UPDATE users SET role = ?, hotel_id = ? WHERE id = ?', [
+          'admin',
+          targetHotelId,
+          userId
+        ]);
+        user.role = 'admin';
+        user.hotel_id = targetHotelId;
       }
     } else {
+      const role = canBeHotelAdmin ? 'admin' : 'guest';
+      const hotelId = canBeHotelAdmin ? targetHotelId : null;
       const [result] = await db.query(
-        'INSERT INTO users (google_id, full_name, email, role, hotel_id, is_verified) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO users (google_id, full_name, email, role, hotel_id, is_verified, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
         [googleId, name, email, role, hotelId, true]
       );
       userId = result.insertId;
+      if (role === 'admin' && hotelId) {
+        await demoteOtherHotelAdmins(db, hotelId, userId);
+      }
       const [newUsers] = await db.query('SELECT * FROM users WHERE id = ?', [userId]);
       user = newUsers[0];
     }
 
-    if (!user.is_verified) {
-      await db.query('UPDATE users SET is_verified = 1 WHERE id = ?', [userId]);
+    if (!isEmailVerified(user)) {
+      await markEmailVerified(userId);
       user.is_verified = 1;
+      user.email_verified_at = user.email_verified_at || new Date();
     }
 
     const token = createToken({ id: userId, email: user.email, role: user.role });
@@ -420,7 +462,7 @@ exports.setPassword = async (req, res) => {
 
 exports.verifyEmail = async (req, res) => {
   try {
-    const { token } = req.body;
+  const token = (req.body.token || '').trim();
 
     if (!token) {
       return res.status(400).json({ success: false, message: 'Verification token required' });
@@ -441,11 +483,17 @@ exports.verifyEmail = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid or expired verification token' });
     }
 
-    if (user.is_verified) {
-      return res.status(400).json({ success: false, message: 'Email already verified' });
+    if (isEmailVerified(user)) {
+      return res.json({
+        success: true,
+        alreadyVerified: true,
+        emailVerified: true,
+        message:
+          'Email already verified. Sign in on any port or device — your account stays verified.'
+      });
     }
 
-    await db.query('UPDATE users SET is_verified = 1, verification_token = NULL WHERE id = ?', [user.id]);
+    await markEmailVerified(user.id);
 
     try {
       await emailService.sendWelcomeEmail(user.email, user.full_name);
@@ -455,10 +503,19 @@ exports.verifyEmail = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Email verified successfully. Welcome to Nepal Stays!'
+      message:
+        'Email verified successfully. You can sign in from any device or port — verification is saved permanently.',
+      emailVerified: true
     });
   } catch (error) {
     console.error('Email verification error:', error);
+    if (error.code === 'ER_BAD_FIELD_ERROR' || error.code === 'ER_UNKNOWN_COLUMN') {
+      return res.status(503).json({
+        success: false,
+        message:
+          'Database is missing email_verified_at. Run: node scripts/run_pending_migrations.js'
+      });
+    }
     res.status(500).json({ success: false, message: 'Email verification failed' });
   }
 };
@@ -476,9 +533,7 @@ exports.resendVerificationEmail = async (req, res) => {
     }
 
     const user = users[0];
-    const verified =
-      user.is_verified === true || user.is_verified === 1 || user.is_verified === '1';
-    if (verified) {
+    if (isEmailVerified(user)) {
       return res.status(400).json({
         success: false,
         code: 'ALREADY_VERIFIED',
@@ -501,10 +556,10 @@ exports.resendVerificationEmail = async (req, res) => {
 
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const verificationTokenHash = await bcrypt.hash(verificationToken, 10);
-    await db.query('UPDATE users SET verification_token = ? WHERE id = ?', [
-      verificationTokenHash,
-      user.id
-    ]);
+    await db.query(
+      'UPDATE users SET verification_token = ? WHERE id = ? AND email_verified_at IS NULL',
+      [verificationTokenHash, user.id]
+    );
 
     const frontendBase = resolveFrontendBase(clientOrigin);
     const emailResult = await emailService.sendVerificationEmail(

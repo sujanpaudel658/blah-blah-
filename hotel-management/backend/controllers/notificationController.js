@@ -49,7 +49,7 @@ const markNotificationRead = async (req, res) => {
 const markAllNotificationsRead = async (req, res) => {
   try {
     const role = roleMap[req.user.role] || req.user.role;
-    const userId = role === 'user' ? req.user.id : (req.body.userId ? Number(req.body.userId) : null);
+    const userId = req.body.userId != null ? Number(req.body.userId) : req.user.id;
     const updated = await notificationService.markAllAsRead({ userId, role });
     return res.json({ success: true, message: 'Notifications marked as read', updated });
   } catch (error) {
@@ -60,7 +60,7 @@ const markAllNotificationsRead = async (req, res) => {
 const getNotificationSummary = async (req, res) => {
   try {
     const role = roleMap[req.user.role] || req.user.role;
-    const userId = role === 'user' ? req.user.id : (req.query.userId ? Number(req.query.userId) : null);
+    const userId = req.query.userId ? Number(req.query.userId) : req.user.id;
     const unread = await notificationService.countUnread({ userId, role });
     return res.json({ success: true, unread });
   } catch (error) {

@@ -2,6 +2,12 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const {
+  findHotelAdminConflict,
+  demoteOtherHotelAdmins,
+  userManagesOtherHotel,
+  hotelManagerExistsPayload
+} = require('../utils/hotelAdmin');
 
 router.post('/assign-hotel', authenticateToken, requireRole(['superadmin']), async (req, res) => {
   const { email, hotelId } = req.body;
@@ -75,9 +81,25 @@ router.patch('/:id/role', authenticateToken, requireRole(['superadmin']), async 
       });
     }
 
+    const userId = Number(id);
+    if (role === 'admin') {
+      const conflict = await findHotelAdminConflict(db, hotelId, userId);
+      if (conflict) {
+        return res.status(409).json(hotelManagerExistsPayload(conflict));
+      }
+      if (await userManagesOtherHotel(db, userId, hotelId)) {
+        return res.status(409).json({
+          success: false,
+          code: 'USER_ALREADY_HOTEL_MANAGER',
+          message: 'This user already manages another hotel.'
+        });
+      }
+      await demoteOtherHotelAdmins(db, hotelId, userId);
+    }
+
     const [result] = await db.query(
       'UPDATE users SET role = ?, hotel_id = ? WHERE id = ?',
-      [role, role === 'admin' ? hotelId : null, id]
+      [role, role === 'admin' ? hotelId : null, userId]
     );
 
     if (result.affectedRows === 0) {

@@ -4,6 +4,8 @@ const SNAPSHOT_TTL_MS = Number(process.env.CHATBOT_SNAPSHOT_TTL_MS || 5 * 60 * 1
 let snapshotCache = { value: '', expiresAt: 0 };
 let snapshotInFlight = null;
 
+
+
 function summarizePriceRating(rows) {
     if (!rows || rows.length === 0) return '';
     let cheapest = rows[0];
@@ -117,7 +119,7 @@ function formatHotelLine(h, i) {
         h.starting_price != null && !Number.isNaN(Number(h.starting_price))
             ? `from NPR ${Number(h.starting_price).toLocaleString()}`
             : 'price on request';
-    const rating = h.rating != null ? `★ ${Number(h.rating).toFixed(1)}` : 'no rating yet';
+    const rating = h.rating != null ? ` ${Number(h.rating).toFixed(1)}` : 'no rating yet';
     return `${i + 1}. **${h.name}** (${h.city || 'Nepal'}) — ${price}, ${rating}.`;
 }
 

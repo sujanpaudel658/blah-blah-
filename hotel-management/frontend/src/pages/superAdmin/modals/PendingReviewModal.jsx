@@ -140,7 +140,7 @@ const PendingReviewModal = ({
                   onClick={() => pendingReviewId && handleDeletePendingHotel(pendingReviewId)}
                   className="px-6 py-3 bg-[#B91C1C] text-white text-[10px] font-bold uppercase tracking-[0.2em] rounded-sm"
                 >
-                  Delete request
+                  Reject request
                 </button>
                 <button
                   type="button"

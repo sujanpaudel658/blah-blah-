@@ -6,7 +6,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 ALTER TABLE bookings
   MODIFY COLUMN total_price DECIMAL(10,2) DEFAULT 0.00;
 
--- Optional: If you want to populate existing rows with values from total_amount
+-- Optional
 UPDATE bookings SET total_price = total_amount WHERE total_price IS NULL OR total_price = 0;
 
 SET FOREIGN_KEY_CHECKS = 1;

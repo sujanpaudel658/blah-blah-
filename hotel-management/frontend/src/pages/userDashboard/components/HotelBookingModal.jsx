@@ -2,7 +2,8 @@ import React from 'react';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import { API_URL } from '../../../config/api';
 import { getImageUrl } from '../../../utils/helpers';
-import '../leafletSetup';
+import { formatHotelLocationShort, formatHotelLocationFull, withNormalizedCoords } from '../../../utils/hotelLocation';
+import { hasValidMapCoords } from '../../../utils/geoCoords';
 
 const HotelBookingModal = ({
   showModal,
@@ -110,7 +111,7 @@ const HotelBookingModal = ({
                       <div className="flex items-center gap-2 text-[#B88E2F]">
                         <span className="material-symbols-outlined text-xl">location_on</span>
                         <span className="text-sm font-semibold tracking-wide uppercase">
-                          {selectedHotel.address || (selectedHotel.city ? `${selectedHotel.city}${selectedHotel.country ? `, ${selectedHotel.country}` : ''}` : 'Location Not Provided')}
+                          {formatHotelLocationShort(selectedHotel) || 'Location Not Provided'}
                         </span>
                       </div>
                       <div className="flex flex-wrap gap-6 py-6 border-y border-slate-100">
@@ -244,52 +245,74 @@ const HotelBookingModal = ({
 
                     <section className="space-y-6">
                       <h4 className="text-sm font-bold text-[#1B2B41] uppercase tracking-widest border-l-4 border-[#B88E2F] pl-4 font-inter">Hotel Location</h4>
-                      <div className="h-[350px] shadow-sm rounded-2xl overflow-hidden relative group">
-                        <MapContainer
-                          center={[selectedHotel.latitude, selectedHotel.longitude]}
-                          zoom={15}
-                          style={{ height: '100%', width: '100%' }}
-                          scrollWheelZoom={true}
-                          zoomControl={true}
-                          dragging={true}
-                        >
-                          <TileLayer url="https://{s}.tile.osm.org/{z}/{x}/{y}.png" />
-                          <Marker position={[selectedHotel.latitude, selectedHotel.longitude]} />
-                        </MapContainer>
+                      {(() => {
+                        const pin = withNormalizedCoords(selectedHotel);
+                        const hasCoords = hasValidMapCoords(pin.latitude, pin.longitude);
+                        const lat = pin.latitude;
+                        const lng = pin.longitude;
+                        const locationLine = formatHotelLocationFull(selectedHotel);
+                        return hasCoords ? (
+                          <>
+                            <div className="h-[350px] shadow-sm rounded-2xl overflow-hidden relative group">
+                              <MapContainer
+                                key={`${selectedHotel.id}-${lat}-${lng}`}
+                                center={[lat, lng]}
+                                zoom={16}
+                                style={{ height: '100%', width: '100%' }}
+                                scrollWheelZoom={true}
+                                zoomControl={true}
+                                dragging={true}
+                              >
+                                <TileLayer url="https://{s}.tile.osm.org/{z}/{x}/{y}.png" />
+                                <Marker position={[lat, lng]} />
+                              </MapContainer>
 
-                        <div className="absolute bottom-4 right-4 z-[1000] flex gap-2">
-                          <button
-                            onClick={() => setIsMapFullScreen(true)}
-                            className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg border border-slate-100 shadow-xl text-[10px] font-bold text-[#1B2B41] flex items-center gap-2 hover:bg-[#1B2B41] hover:text-white transition-all transform hover:scale-105"
-                          >
-                            <span className="material-symbols-outlined text-sm">open_in_full</span>
-                            OPEN FULL MAP
-                          </button>
-                          <a
-                            href={`https://www.google.com/maps/dir/?api=1&destination=${selectedHotel.latitude},${selectedHotel.longitude}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="bg-[#B88E2F] px-4 py-2 rounded-lg shadow-xl text-[10px] font-bold text-white flex items-center gap-2 hover:bg-[#a17a26] transition-all transform hover:scale-105"
-                          >
-                            <span className="material-symbols-outlined text-sm">directions</span>
-                            GET DIRECTIONS
-                          </a>
-                        </div>
+                              <div className="absolute bottom-4 right-4 z-[1000] flex gap-2">
+                                <button
+                                  onClick={() => setIsMapFullScreen(true)}
+                                  className="bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg border border-slate-100 shadow-xl text-[10px] font-bold text-[#1B2B41] flex items-center gap-2 hover:bg-[#1B2B41] hover:text-white transition-all transform hover:scale-105"
+                                >
+                                  <span className="material-symbols-outlined text-sm">open_in_full</span>
+                                  OPEN FULL MAP
+                                </button>
+                                <a
+                                  href={`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="bg-[#B88E2F] px-4 py-2 rounded-lg shadow-xl text-[10px] font-bold text-white flex items-center gap-2 hover:bg-[#a17a26] transition-all transform hover:scale-105"
+                                >
+                                  <span className="material-symbols-outlined text-sm">directions</span>
+                                  GET DIRECTIONS
+                                </a>
+                              </div>
 
-                        <div className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg border border-slate-100 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity">
-                          <p className="text-[10px] font-bold text-[#1B2B41]">INTERACTIVE MAP</p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-1">North Reference</span>
-                          <p className="text-xs font-mono font-bold text-[#1B2B41]">{Number(selectedHotel.latitude)?.toFixed(6) || '---'}</p>
-                        </div>
-                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-1">East Reference</span>
-                          <p className="text-xs font-mono font-bold text-[#1B2B41]">{Number(selectedHotel.longitude)?.toFixed(6) || '---'}</p>
-                        </div>
-                      </div>
+                              <div className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg border border-slate-100 shadow-xl opacity-0 group-hover:opacity-100 transition-opacity">
+                                <p className="text-[10px] font-bold text-[#1B2B41]">INTERACTIVE MAP</p>
+                              </div>
+                            </div>
+                            <p className="text-sm text-slate-600 font-medium">{locationLine}</p>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-1">North Reference</span>
+                                <p className="text-xs font-mono font-bold text-[#1B2B41]">{lat.toFixed(6)}</p>
+                              </div>
+                              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block mb-1">East Reference</span>
+                                <p className="text-xs font-mono font-bold text-[#1B2B41]">{lng.toFixed(6)}</p>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="h-[350px] rounded-2xl border border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center p-8 text-center">
+                            <span className="material-symbols-outlined text-4xl text-slate-300 mb-3">map_off</span>
+                            <p className="text-sm font-bold text-[#1B2B41] uppercase tracking-wide">Map unavailable</p>
+                            <p className="text-xs text-slate-500 mt-2 max-w-sm">
+                              This hotel has not set map coordinates yet. Ask the property to pin their location in the admin dashboard.
+                            </p>
+                            <p className="text-[10px] font-bold text-[#B88E2F] mt-3 uppercase">{locationLine}</p>
+                          </div>
+                        );
+                      })()}
                     </section>
                   </div>
 
@@ -409,7 +432,7 @@ const HotelBookingModal = ({
                                 <p className="text-[10px] font-bold text-[#1B2B41] uppercase tracking-widest">Loyalty Program</p>
                                 <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">
                                   {loyaltyStatus.is_eligible 
-                                    ? '🎉 1 FREE NIGHT REWARD AVAILABLE!' 
+                                    ? ' 1 FREE NIGHT REWARD AVAILABLE!' 
                                     : `${loyaltyStatus.progress}/${loyaltyStatus.threshold} stays this year`}
                                 </p>
                               </div>

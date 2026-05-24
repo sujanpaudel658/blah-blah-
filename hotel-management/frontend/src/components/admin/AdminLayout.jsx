@@ -1,6 +1,7 @@
 import React from 'react';
 import Sidebar from './Sidebar';
 import { getImageUrl } from '../../utils/helpers';
+import NotificationBell from '../NotificationBell';
 
 const AdminLayout = ({ children, user, hotel, onLogout, title, subtitle }) => {
     return (
@@ -19,14 +20,10 @@ const AdminLayout = ({ children, user, hotel, onLogout, title, subtitle }) => {
                     </div>
 
                     <div className="flex items-center gap-5">
-                        <div className="hidden lg:flex items-center gap-1 pr-5 border-r border-[#E8E4DE]">
-                            <button className="w-9 h-9 flex items-center justify-center text-[#6B7B8D] hover:text-[#1A2332] hover:bg-[#F4F3F0] rounded-lg transition-all relative">
-                                <span className="material-symbols-outlined text-[20px]">notifications</span>
-                                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#C4993E] rounded-full border-2 border-white"></span>
-                            </button>
-                            <button className="w-9 h-9 flex items-center justify-center text-[#6B7B8D] hover:text-[#1A2332] hover:bg-[#F4F3F0] rounded-lg transition-all">
-                                <span className="material-symbols-outlined text-[20px]">mail</span>
-                            </button>
+                        <div className="flex items-center pr-3 sm:pr-5 border-r border-[#E8E4DE]">
+                            <NotificationBell
+                                emptyHint="No notifications yet. Booking activity and platform alerts will appear here."
+                            />
                         </div>
 
                         <div className="flex items-center gap-3">

@@ -308,7 +308,7 @@ exports.sendBookingConfirmation = async (email, details) => {
         <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 40px; border-radius: 24px;">
           <div style="background-color: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);">
             <div style="text-align: center; margin-bottom: 30px;">
-              <div style="background-color: #ecfdf5; color: #059669; width: 64px; height: 64px; line-height: 64px; border-radius: 50%; display: inline-block; font-size: 32px;">✓</div>
+              <div style="background-color: #ecfdf5; color: #059669; width: 64px; height: 64px; line-height: 64px; border-radius: 50%; display: inline-block; font-size: 32px;"></div>
               <h2 style="color: #1e293b; margin-top: 20px; font-size: 24px; font-weight: 800;">Booking Confirmed!</h2>
             </div>
             
@@ -545,6 +545,64 @@ exports.sendRefundRejectedEmail = async (email, details) => {
                 <tr>
                   <td style="padding:14px 24px;background:#f0ebe4;font-family:Arial, Helvetica, sans-serif;font-size:11px;color:#8a7d72;text-align:center;">
                     This message was sent because a refund decision was recorded on your booking.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      `;
+  return sendEmailReliable({ to, subject, html });
+};
+
+exports.sendHotelListingRejectedEmail = async (email, details) => {
+  const to = String(email || '').trim();
+  if (!to) {
+    return { success: false, reason: 'invalid_recipient' };
+  }
+  const esc = (s) =>
+    String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  const hotel = esc(details.hotelName || 'your property');
+  const owner = esc(details.ownerName || 'there');
+  const reason = details.reason ? String(details.reason).trim() : '';
+  const base = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
+  const subject = `Partner listing update — ${details.hotelName || 'Your hotel'} · Nepal Stays`;
+  const reasonBlock = reason
+    ? `<p style="margin:12px 0 0 0;font-size:14px;color:#4a4238;"><strong>Note from our team:</strong> ${esc(reason)}</p>`
+    : '';
+  const html = `
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f6f4f0;">
+          <tr>
+            <td align="center" style="padding:24px 12px;">
+              <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e8e4de;">
+                <tr>
+                  <td style="background:#fef2f2;padding:22px 24px;border-bottom:2px solid #fecaca;">
+                    <div style="font-family:Arial, Helvetica, sans-serif;">
+                      <div style="font-size:12px;letter-spacing:0.14em;color:#991b1b;text-transform:uppercase;font-weight:700;">Nepal Stays</div>
+                      <div style="font-size:20px;color:#1f1c1a;font-weight:800;margin-top:8px;">Partner listing not approved</div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:22px 24px;font-family:Arial, Helvetica, sans-serif;color:#2c2825;font-size:15px;line-height:1.6;">
+                    <p style="margin:0 0 12px 0;">Hi ${owner},</p>
+                    <p style="margin:0 0 16px 0;">
+                      Thank you for your interest in partnering with Nepal Stays. After review, we are unable to approve your listing request for <strong>${hotel}</strong> at this time.
+                    </p>
+                    ${reasonBlock}
+                    <p style="margin:16px 0 0 0;font-size:14px;">
+                      You can submit a new application from your
+                      <a href="${base}/guest/list-your-hotel" style="color:#b88e2f;font-weight:700;">Partner With Us</a> page when you are ready.
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:14px 24px;background:#f0ebe4;font-family:Arial, Helvetica, sans-serif;font-size:11px;color:#8a7d72;text-align:center;">
+                    You also received an in-app notification on your guest dashboard.
                   </td>
                 </tr>
               </table>

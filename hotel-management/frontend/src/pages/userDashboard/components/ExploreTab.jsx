@@ -136,7 +136,7 @@ const ExploreTab = ({
                   </div>
                   <div className="flex items-start gap-2 mb-6">
                     <span className="material-symbols-outlined text-lg text-[#B88E2F] shrink-0 mt-0.5">location_on</span>
-                    <p className="text-sm font-semibold text-[#475569] leading-snug">{hotel.location || hotel.address || (hotel.city ? `${hotel.city}${hotel.country ? `, ${hotel.country}` : ''}` : 'Location not provided')}</p>
+                    <p className="text-sm font-semibold text-[#475569] leading-snug">{hotel.location || 'Location not provided'}</p>
                   </div>
                   <button className="w-full mt-2 py-4 border border-[#E2E2E2] text-xs font-bold text-[#1B2B41] uppercase tracking-[0.15em] hover:bg-[#1B2B41] hover:text-white transition-all rounded-xl">View Hotel Details</button>
                 </div>

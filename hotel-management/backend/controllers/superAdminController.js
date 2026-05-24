@@ -1,6 +1,15 @@
 const bcrypt = require('bcrypt');
 const db = require('../config/db');
+const emailService = require('../services/email.service');
 const notificationEvents = require('../services/notificationEvents.service');
+const { resolveHotelLocationFields } = require('../utils/hotelLocation');
+const { markEmailVerified } = require('../utils/markEmailVerified');
+const {
+  findHotelAdminConflict,
+  userManagesOtherHotel,
+  demoteOtherHotelAdmins,
+  hotelManagerExistsPayload
+} = require('../utils/hotelAdmin');
 
 const handleError = (res, error, message) => {
   console.error(`${message}:`, error.message);
@@ -27,19 +36,28 @@ exports.createHotel = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Admin name, email, and password are required' });
     }
 
+    const resolvedLoc = await resolveHotelLocationFields({
+      city,
+      address,
+      country,
+      latitude,
+      longitude
+    });
+
     const [result] = await db.query(
-      'INSERT INTO hotels (name, address, city, country, phone, email, description, image, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      `INSERT INTO hotels (name, address, city, country, phone, email, description, image, latitude, longitude, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'verified')`,
       [
         name,
-        address,
-        city,
-        country,
+        resolvedLoc.address,
+        resolvedLoc.city,
+        resolvedLoc.country,
         phone,
         email,
         description,
         image,
-        (latitude !== undefined && latitude !== null) ? latitude : null,
-        (longitude !== undefined && longitude !== null) ? longitude : null
+        resolvedLoc.latitude,
+        resolvedLoc.longitude
       ]
     );
     const hotelId = result.insertId;
@@ -52,6 +70,16 @@ exports.createHotel = async (req, res) => {
     if (existingUsers.length > 0) {
       adminId = existingUsers[0].id;
       adminPromoted = true;
+      if (await userManagesOtherHotel(db, adminId, hotelId)) {
+        await db.query('DELETE FROM hotels WHERE id = ?', [hotelId]);
+        return res.status(409).json({
+          success: false,
+          code: 'USER_ALREADY_HOTEL_MANAGER',
+          message:
+            'That email already manages another hotel. Use a different manager email or remove their existing manager role first.'
+        });
+      }
+      await demoteOtherHotelAdmins(db, hotelId, adminId);
       await db.query(
         'UPDATE users SET role = ?, hotel_id = ?, password = ? WHERE id = ?',
         ['admin', hotelId, hashedPassword, adminId]
@@ -62,7 +90,11 @@ exports.createHotel = async (req, res) => {
         [adminName, adminEmail, hashedPassword, 'admin', hotelId]
       );
       adminId = adminResult.insertId;
+      await demoteOtherHotelAdmins(db, hotelId, adminId);
     }
+
+    // Super-admin–created managers can sign in immediately (lifetime verification in DB).
+    await markEmailVerified(adminId);
 
     const [newHotel] = await db.query('SELECT * FROM hotels WHERE id = ?', [hotelId]);
 
@@ -99,19 +131,27 @@ exports.updateHotel = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Image data too large' });
     }
 
+    const resolvedLoc = await resolveHotelLocationFields({
+      city,
+      address,
+      country,
+      latitude,
+      longitude
+    });
+
     const [result] = await db.query(
       'UPDATE hotels SET name = ?, address = ?, city = ?, country = ?, phone = ?, email = ?, description = ?, image = ?, latitude = ?, longitude = ? WHERE id = ?',
       [
         name,
-        address,
-        city,
-        country,
+        resolvedLoc.address,
+        resolvedLoc.city,
+        resolvedLoc.country,
         phone,
         email,
         description,
         image,
-        (latitude !== undefined && latitude !== null) ? latitude : null,
-        (longitude !== undefined && longitude !== null) ? longitude : null,
+        resolvedLoc.latitude,
+        resolvedLoc.longitude,
         id
       ]
     );
@@ -214,6 +254,11 @@ exports.createAdmin = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid hotel selected' });
     }
 
+    const managerConflict = await findHotelAdminConflict(db, hotelId);
+    if (managerConflict) {
+      return res.status(409).json(hotelManagerExistsPayload(managerConflict));
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
     const [result] = await db.query(
       'INSERT INTO users (full_name, email, phone, password, role, hotel_id) VALUES (?, ?, ?, ?, ?, ?)',
@@ -291,6 +336,16 @@ exports.verifyHotel = async (req, res) => {
     if (hotel.owner_id) {
       const [users] = await connection.query('SELECT * FROM users WHERE id = ?', [hotel.owner_id]);
       if (users.length > 0) {
+        if (await userManagesOtherHotel(connection, hotel.owner_id, id)) {
+          await connection.rollback();
+          return res.status(409).json({
+            success: false,
+            code: 'USER_ALREADY_HOTEL_MANAGER',
+            message:
+              'The listing owner already manages another hotel. Reassign or remove that role before approving this listing.'
+          });
+        }
+        await demoteOtherHotelAdmins(connection, id, hotel.owner_id);
         await connection.query(
           'UPDATE users SET role = "admin", hotel_id = ? WHERE id = ?',
           [id, hotel.owner_id]
@@ -360,6 +415,54 @@ exports.getPendingHotelDetail = async (req, res) => {
 exports.deletePendingHotel = async (req, res) => {
   try {
     const { id } = req.params;
+    const reason =
+      req.body?.reason != null && String(req.body.reason).trim()
+        ? String(req.body.reason).trim()
+        : null;
+
+    const [hotels] = await db.query(
+      `SELECT h.id, h.name, h.owner_id, u.email AS owner_email, u.full_name AS owner_name
+       FROM hotels h
+       LEFT JOIN users u ON u.id = h.owner_id
+       WHERE h.id = ? AND h.status = 'pending'`,
+      [id]
+    );
+    if (hotels.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pending hotel not found or already processed'
+      });
+    }
+
+    const hotel = hotels[0];
+    const hotelId = hotel.id;
+    const hotelName = hotel.name;
+
+    if (hotel.owner_id) {
+      try {
+        await notificationEvents.notifyHotelListingRejected({
+          ownerId: hotel.owner_id,
+          hotelId,
+          hotelName,
+          reason
+        });
+      } catch (notifyErr) {
+        console.error('[hotel] listing rejection notification failed:', notifyErr.message);
+      }
+
+      if (hotel.owner_email) {
+        try {
+          await emailService.sendHotelListingRejectedEmail(hotel.owner_email, {
+            ownerName: hotel.owner_name,
+            hotelName,
+            reason
+          });
+        } catch (mailErr) {
+          console.error('[hotel] listing rejection email failed:', mailErr.message);
+        }
+      }
+    }
+
     const [result] = await db.query('DELETE FROM hotels WHERE id = ? AND status = ?', [id, 'pending']);
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -367,7 +470,13 @@ exports.deletePendingHotel = async (req, res) => {
         message: 'Pending hotel not found or already processed'
       });
     }
-    res.json({ success: true, message: 'Pending hotel request removed' });
+
+    res.json({
+      success: true,
+      message: hotel.owner_id
+        ? 'Partner request rejected. The applicant was notified in-app and by email (if mail is configured).'
+        : 'Pending hotel request removed.'
+    });
   } catch (error) {
     handleError(res, error, 'Failed to delete pending hotel');
   }

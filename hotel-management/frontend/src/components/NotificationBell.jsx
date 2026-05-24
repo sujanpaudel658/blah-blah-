@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../config/api';
 
-// Guest notification dropdown (/api/notifications).
-const GuestNotificationBell = () => {
+/** Uses /api/notifications — works for guests, hotel admins, and superadmins. */
+const NotificationBell = ({
+  emptyHint = 'No notifications yet. Refund and booking updates will appear here.'
+}) => {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
@@ -110,9 +112,7 @@ const GuestNotificationBell = () => {
             {loading && items.length === 0 ? (
               <p className="px-4 py-8 text-center text-[12px] text-[#7a6d62]">Loading…</p>
             ) : items.length === 0 ? (
-              <p className="px-4 py-8 text-center text-[12px] text-[#7a6d62]">
-                No notifications yet. Refund and booking updates will appear here.
-              </p>
+              <p className="px-4 py-8 text-center text-[12px] text-[#7a6d62]">{emptyHint}</p>
             ) : (
               items.map((n) => (
                 <button
@@ -145,4 +145,4 @@ const GuestNotificationBell = () => {
   );
 };
 
-export default GuestNotificationBell;
+export default NotificationBell;

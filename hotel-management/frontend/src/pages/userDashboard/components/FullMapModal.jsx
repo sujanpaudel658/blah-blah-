@@ -1,9 +1,11 @@
 import React from 'react';
-import '../leafletSetup';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
+import { withNormalizedCoords } from '../../../utils/hotelLocation';
+import { hasValidMapCoords } from '../../../utils/geoCoords';
 
 const FullMapModal = ({ isMapFullScreen, selectedHotel, setIsMapFullScreen }) => {
-  if (!isMapFullScreen || !selectedHotel || !selectedHotel.latitude) return null;
+  const pin = withNormalizedCoords(selectedHotel);
+  if (!isMapFullScreen || !selectedHotel || !hasValidMapCoords(pin.latitude, pin.longitude)) return null;
 
   return (
     <div className="fixed inset-0 z-[200] bg-white flex flex-col fade-in">
@@ -20,15 +22,15 @@ const FullMapModal = ({ isMapFullScreen, selectedHotel, setIsMapFullScreen }) =>
         <div className="flex items-center gap-10">
           <div className="hidden md:flex flex-col items-end">
             <span className="text-[8px] font-bold text-[#A0AEC0] uppercase tracking-widest">Location Points</span>
-            <span className="text-[10px] font-bold text-[#B88E2F] uppercase">{Number(selectedHotel.latitude).toFixed(6)}, {Number(selectedHotel.longitude).toFixed(6)}</span>
+            <span className="text-[10px] font-bold text-[#B88E2F] uppercase">{pin.latitude.toFixed(6)}, {pin.longitude.toFixed(6)}</span>
           </div>
           <button onClick={() => setIsMapFullScreen(false)} className="px-8 py-3 bg-white text-[#1B2B41] font-bold text-[10px] uppercase tracking-widest rounded-xl">Close Map</button>
         </div>
       </div>
       <div className="flex-1 relative grayscale-[0.8]">
-        <MapContainer center={[selectedHotel.latitude, selectedHotel.longitude]} zoom={16} style={{ height: '100%', width: '100%' }}>
+        <MapContainer center={[pin.latitude, pin.longitude]} zoom={16} style={{ height: '100%', width: '100%' }}>
           <TileLayer url="https://{s}.tile.osm.org/{z}/{x}/{y}.png" />
-          <Marker position={[selectedHotel.latitude, selectedHotel.longitude]} />
+          <Marker position={[pin.latitude, pin.longitude]} />
         </MapContainer>
       </div>
     </div>
