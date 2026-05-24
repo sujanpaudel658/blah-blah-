@@ -1,6 +1,6 @@
 const db = require('../config/db');
 
-// 5 stays / hotel / calendar year → one redeemable free night.
+// 5 stays in same hotel in one  calendar year → one redeemable free night.
 
 const LOYALTY_THRESHOLD = 5;
 

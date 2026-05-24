@@ -2,9 +2,10 @@ const mysql = require('mysql2');
 const path = require('path');
 
 // Always load backend/.env (cwd can differ under concurrently/npm scripts).
+// override: false — Docker/compose env (e.g. DB_HOST=db) wins over backend/.env.
 require('dotenv').config({
   path: path.join(__dirname, '..', '.env'),
-  override: true
+  override: false
 });
 
 const dbHost = process.env.DB_HOST || '127.0.0.1';

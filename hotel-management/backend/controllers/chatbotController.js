@@ -125,6 +125,201 @@ async function fetchDistinctCities() {
     return rows.map((r) => r.city).filter(Boolean);
 }
 
+function parseAmenityList(raw) {
+    if (raw == null || raw === '') return [];
+    try {
+        const v = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean);
+        if (typeof v === 'object' && v !== null) return Object.values(v).map(String);
+        return [String(v)];
+    } catch {
+        return [];
+    }
+}
+
+function amenityFlags(amenities) {
+    const text = amenities.join(' ').toLowerCase();
+    return {
+        hasAc: /air.?condition|\bac\b|a\/c|cooling|ac unit|air conditioning/i.test(text),
+        hasWifi: /wifi|wi-fi|internet/i.test(text),
+        hasParking: /parking/i.test(text),
+        hasPool: /pool|swimming/i.test(text)
+    };
+}
+
+/** Verified hotels with merged room amenities for chat context. */
+async function fetchHotelContextRows() {
+    const [rows] = await db.query(
+        `SELECT h.id, h.name, h.city, h.address, h.rating, h.latitude, h.longitude,
+                rt.amenities, rt.base_price
+         FROM hotels h
+         INNER JOIN room_types rt ON rt.hotel_id = h.id
+         WHERE h.status = 'verified'
+         ORDER BY h.rating DESC, rt.base_price ASC`
+    );
+    const byId = new Map();
+    for (const row of rows) {
+        const am = parseAmenityList(row.amenities);
+        const flags = amenityFlags(am);
+        const existing = byId.get(row.id);
+        if (!existing) {
+            byId.set(row.id, {
+                id: row.id,
+                name: row.name,
+                city: row.city,
+                address: row.address,
+                rating: row.rating,
+                latitude: row.latitude,
+                longitude: row.longitude,
+                starting_price: row.base_price,
+                amenities: [...am],
+                ...flags
+            });
+            continue;
+        }
+        existing.amenities = [...new Set([...existing.amenities, ...am])];
+        const merged = amenityFlags(existing.amenities);
+        existing.hasAc = existing.hasAc || merged.hasAc;
+        existing.hasWifi = existing.hasWifi || merged.hasWifi;
+        existing.hasParking = existing.hasParking || merged.hasParking;
+        existing.hasPool = existing.hasPool || merged.hasPool;
+        const price = Number(row.base_price);
+        if (Number.isFinite(price)) {
+            const cur = Number(existing.starting_price);
+            existing.starting_price =
+                Number.isFinite(cur) ? Math.min(cur, price) : price;
+        }
+    }
+    return [...byId.values()].slice(0, 12);
+}
+
+function formatHotelContextForPrompt(hotels) {
+    if (!hotels.length) return '(none yet)';
+    return hotels
+        .map((h) => {
+            const feats = [];
+            if (h.hasAc) feats.push('AC');
+            if (h.hasWifi) feats.push('Wi-Fi');
+            if (h.hasParking) feats.push('parking');
+            if (h.hasPool) feats.push('pool');
+            const featStr = feats.length ? `; amenities: ${feats.join(', ')}` : '';
+            return `- ${h.name} (${h.city || 'Nepal'}): rating ${h.rating ?? 'n/a'}, from NPR ${h.starting_price ?? 'n/a'}${featStr}`;
+        })
+        .join('\n');
+}
+
+function buildGeminiSystemPrompt(hotelContextText) {
+    return `You are the Nepal Stays assistant — a warm, helpful hotel booking guide for Nepal.
+
+Personality:
+- Reply like a friendly local host, not a generic helpdesk bot.
+- Acknowledge small talk (weather, heat, rain, travel mood) briefly, then tie it to finding a comfortable stay.
+- Never reply with only "Is there anything I can help you with regarding hotel bookings?" or similar brush-offs.
+
+Booking focus:
+- Heat / humidity → suggest hotels with AC or cooler rooms; offer to search by city.
+- Cold → suggest warmer rooms or hill cities (e.g. Pokhara) when relevant.
+- Rain / monsoon → mention indoor amenities and covered parking when available.
+- Only name hotels from the verified list below. Do not invent properties, prices, or amenities.
+- If no city is given, ask which city they are visiting. Keep replies under 120 words unless listing hotels.
+
+Verified hotels (from our database — may be partial):
+${hotelContextText || '(none yet)'}`;
+}
+
+function hotelRowFromContext(h) {
+    if (!h) return null;
+    return rowToHotel({
+        id: h.id,
+        name: h.name,
+        city: h.city,
+        address: h.address,
+        rating: h.rating,
+        latitude: h.latitude,
+        longitude: h.longitude,
+        starting_price: h.starting_price
+    });
+}
+
+/** Weather / comfort small talk → practical stay suggestions (uses real amenity data). */
+async function tryComfortReply(message, lastCity) {
+    const lower = message.toLowerCase().trim();
+    const isHot = /(hot|heat|warm|humid|sunny|scorching|boiling|sweat|heatwave)/i.test(lower);
+    const isCold = /(cold|chill|freezing|cool night|winter)/i.test(lower);
+    const isRain = /(rain|monsoon|wet|storm|drizzle)/i.test(lower);
+    const isWeatherChat =
+        isHot ||
+        isCold ||
+        isRain ||
+        /(weather|climate|temperature|forecast)/i.test(lower) ||
+        /^why is it (so )?(hot|cold|warm|rainy)/i.test(lower);
+
+    if (!isWeatherChat) return null;
+
+    const hotels = await fetchHotelContextRows();
+    const city = extractCity(message, lastCity);
+    const inCity = city
+        ? hotels.filter((h) => String(h.city || '').toLowerCase().includes(city.toLowerCase()))
+        : hotels;
+    const withAc = inCity.filter((h) => h.hasAc);
+    const anyAc = hotels.filter((h) => h.hasAc);
+
+    let reply = '';
+
+    if (isHot) {
+        reply =
+            'Yeah, it can get really warm in Nepal — especially in the valleys and Terai during summer. ';
+        if (withAc.length) {
+            reply += `Want a cooler stay${city ? ` in **${city}**` : ''}? These verified hotels list **air conditioning**: `;
+            reply += withAc
+                .slice(0, 3)
+                .map((h) => `**${h.name}** (${h.city})`)
+                .join(', ');
+            reply += '. Open **Explore** to compare rooms and book.';
+        } else if (anyAc.length) {
+            reply += `Several stays on Nepal Stays offer **AC** — for example ${anyAc
+                .slice(0, 2)
+                .map((h) => `**${h.name}** (${h.city})`)
+                .join(' and ')}. Tell me a city (e.g. "hotels in Kathmandu") and I will narrow it down.`;
+        } else {
+            reply +=
+                'Ask for **hotels in [city]** and check each listing for AC or fan cooling in room details.';
+        }
+    } else if (isCold) {
+        reply =
+            'Nepal can get chilly, especially at night in the hills or in winter. ';
+        if (inCity.length) {
+            reply += `For **${city || 'your trip'}**, you could look at ${inCity
+                .slice(0, 2)
+                .map((h) => `**${h.name}** (${h.city})`)
+                .join(' or ')} — compare room types on Explore for heating or warmer bedding.`;
+        } else {
+            reply +=
+                'Pokhara and Kathmandu have plenty of verified stays; say **hotels in Pokhara** or **hotels in Kathmandu** and I will list options.';
+        }
+    } else if (isRain) {
+        reply =
+            'Monsoon season can be wet — good time for a cozy stay indoors. ';
+        const withParking = inCity.filter((h) => h.hasParking);
+        if (withParking.length) {
+            reply += `In ${city || 'our listings'}, **${withParking[0].name}** (${withParking[0].city}) mentions parking — useful when it rains. `;
+        }
+        reply += 'Try **hotels in [city]** to browse verified properties.';
+    } else {
+        reply =
+            'Weather in Nepal varies a lot by season and altitude. Tell me which **city** you are visiting and I can suggest verified hotels there.';
+    }
+
+    const pick = withAc[0] || inCity[0] || hotels[0] || null;
+    return {
+        reply,
+        data: hotelRowFromContext(pick),
+        replyMode: 'rules',
+        kind: 'comfort',
+        city: city || pick?.city || null
+    };
+}
+
 /** Search verified hotels by name (partial match). */
 async function findHotelsByName(nameHint, limit = 5) {
     const hint = String(nameHint || '').trim();
@@ -260,6 +455,9 @@ async function tryRulesReply(message, lastHotel, lastCity) {
             city: null
         };
     }
+
+    const comfort = await tryComfortReply(message, lastCity);
+    if (comfort) return comfort;
 
     if (/^show hotels\b/i.test(lower)) {
         const rows = await fetchHotels(null, 'rating', 8);
@@ -445,24 +643,8 @@ async function geminiReply(message, history) {
         snapshotInFlight = (async () => {
             let snapshot = '';
             try {
-                const [sample] = await db.query(
-                    `SELECT h.name, h.city, h.rating,
-                            MIN(rt.base_price) AS starting_price
-                     FROM hotels h
-                     LEFT JOIN room_types rt ON rt.hotel_id = h.id
-                     WHERE h.status = 'verified'
-                     GROUP BY h.id, h.name, h.city, h.rating
-                     ORDER BY h.rating DESC
-                     LIMIT 5`
-                );
-                if (sample && sample.length) {
-                    snapshot = sample
-                        .map(
-                            (r) =>
-                                `- ${r.name} (${r.city || 'Nepal'}): rating ${r.rating}, from NPR ${r.starting_price ?? 'n/a'}`
-                        )
-                        .join('\n');
-                }
+                const hotels = await fetchHotelContextRows();
+                snapshot = formatHotelContextForPrompt(hotels);
             } catch (e) {
                 snapshot = '';
             }
@@ -473,10 +655,7 @@ async function geminiReply(message, history) {
     }
     const snapshot = snapshotCache.expiresAt > now ? snapshotCache.value : await snapshotInFlight;
 
-    const system = `You are the Nepal Stays chat assistant for a hotel booking site in Nepal.
-Be concise and friendly. Prefer factual tone. If asked for specific listings, suggest the user name a city.
-Verified hotel sample from our database (may be empty):\n${snapshot || '(none yet)'}`;
-
+    const system = buildGeminiSystemPrompt(snapshot);
     const text = await askGemini(system, message, history);
     return text;
 }
@@ -522,6 +701,17 @@ async function queryChatbot(req, res) {
             console.warn('Chatbot: Gemini returned no text (quota, model, or API error). Using fallback reply.');
         } else {
             console.warn('Chatbot: GEMINI_API_KEY not set — rules/fallback only.');
+        }
+
+        const comfortFallback = await tryComfortReply(trimmed, lastCity || null);
+        if (comfortFallback) {
+            return res.json({
+                success: true,
+                reply: comfortFallback.reply,
+                data: comfortFallback.data,
+                replyMode: 'rules',
+                showMap: false
+            });
         }
 
         const rows = await fetchHotels(null, 'rating', 5);
