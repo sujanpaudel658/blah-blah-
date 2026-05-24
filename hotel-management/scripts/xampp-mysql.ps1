@@ -35,6 +35,33 @@ function Get-MysqldProcess {
     Get-Process -Name mysqld -ErrorAction SilentlyContinue
 }
 
+function Get-PidFileValue {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return $null }
+    $raw = Get-Content $Path -Raw -ErrorAction SilentlyContinue
+    if ($null -eq $raw) { return $null }
+    $value = $raw.Trim()
+    if ([string]::IsNullOrWhiteSpace($value)) { return $null }
+    return $value
+}
+
+function Remove-StalePidFiles {
+    foreach ($pidFile in @('mysql.pid', "$env:COMPUTERNAME.pid")) {
+        $path = Join-Path $DataDir $pidFile
+        if (-not (Test-Path $path)) { continue }
+        $stalePid = Get-PidFileValue -Path $path
+        if (-not $stalePid) {
+            Remove-Item $path -Force -ErrorAction SilentlyContinue
+            Write-Host "Removed empty or invalid PID file ($pidFile)."
+            continue
+        }
+        if (-not (Get-Process -Id $stalePid -ErrorAction SilentlyContinue)) {
+            Remove-Item $path -Force -ErrorAction SilentlyContinue
+            Write-Host "Removed stale PID file ($stalePid)."
+        }
+    }
+}
+
 function Test-MySqlPing {
     # mysqladmin writes to stderr when down; do not let that abort the script.
     $prev = $ErrorActionPreference
@@ -57,8 +84,11 @@ function Invoke-Status {
     Write-Host "Port ${DbPort}:     $(if ($port) { 'LISTENING' } else { 'free' })"
     Write-Host "mysql service:  $(if ($svc) { "$($svc.Status) ($($svc.StartType))" } else { 'not installed (use install-service as Admin)' })"
     Write-Host "Ping:           $(if (Test-MySqlPing) { 'OK' } else { 'no response' })"
-    if (Test-Path (Join-Path $DataDir 'mysql.pid')) {
-        Write-Host "PID file:       $((Get-Content (Join-Path $DataDir 'mysql.pid') -Raw).Trim())"
+    $pidValue = Get-PidFileValue -Path (Join-Path $DataDir 'mysql.pid')
+    if ($pidValue) {
+        Write-Host "PID file:       $pidValue"
+    } elseif (Test-Path (Join-Path $DataDir 'mysql.pid')) {
+        Write-Host 'PID file:       (empty — run start to recreate or delete mysql.pid)'
     }
 }
 
@@ -68,16 +98,7 @@ function Invoke-Start {
         Write-Host 'MySQL already responding.'
         return
     }
-    foreach ($pidFile in @('mysql.pid', "$env:COMPUTERNAME.pid")) {
-        $path = Join-Path $DataDir $pidFile
-        if (Test-Path $path) {
-            $stalePid = (Get-Content $path -Raw).Trim()
-            if ($stalePid -and -not (Get-Process -Id $stalePid -ErrorAction SilentlyContinue)) {
-                Remove-Item $path -Force -ErrorAction SilentlyContinue
-                Write-Host "Removed stale PID file ($stalePid)."
-            }
-        }
-    }
+    Remove-StalePidFiles
     Start-Process -FilePath $Mysqld -ArgumentList "--defaults-file=`"$MyIni`"" -WindowStyle Minimized
     $deadline = (Get-Date).AddSeconds(30)
     while ((Get-Date) -lt $deadline) {

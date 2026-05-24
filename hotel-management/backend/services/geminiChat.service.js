@@ -34,7 +34,8 @@ function getApiKeys() {
 }
 
 function getModel() {
-    return (process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
+    // 2.0-flash free-tier quota is often exhausted; lite/2.5 models remain available.
+    return (process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite').trim();
 }
 
 function getRequestTimeoutMs() {
@@ -43,8 +44,8 @@ function getRequestTimeoutMs() {
 }
 
 function getMaxModelAttempts() {
-    const raw = Number(process.env.GEMINI_MAX_MODEL_ATTEMPTS || 2);
-    return Number.isFinite(raw) && raw >= 1 ? Math.min(Math.floor(raw), 4) : 2;
+    const raw = Number(process.env.GEMINI_MAX_MODEL_ATTEMPTS || 4);
+    return Number.isFinite(raw) && raw >= 1 ? Math.min(Math.floor(raw), 6) : 4;
 }
 
 function extractTextFromCandidate(cand) {
@@ -120,16 +121,21 @@ async function requestGeminiModel(key, model, body) {
 }
 
 async function askGeminiWithKey(key, keyIndex, modelsToTry, body) {
-    let quotaExhausted = false;
     let keyInvalid = false;
+    let sawQuota = false;
+    let sawNonQuotaFailure = false;
 
     for (let mi = 0; mi < modelsToTry.length; mi++) {
         const model = modelsToTry[mi];
         try {
             const result = await requestGeminiModel(key, model, body);
             if (result.ok) {
+                if (mi > 0) {
+                    console.warn(`Gemini: response served by fallback model ${model}`);
+                }
                 return { text: result.text };
             }
+            sawNonQuotaFailure = true;
         } catch (e) {
             const status = e.response && e.response.status;
             const detail =
@@ -144,10 +150,15 @@ async function askGeminiWithKey(key, keyIndex, modelsToTry, body) {
             }
 
             if (isQuotaOrKeyLimitError(status, detail)) {
-                quotaExhausted = true;
-                break;
+                sawQuota = true;
+                const isLast = mi === modelsToTry.length - 1;
+                if (!isLast) {
+                    console.warn(`Gemini: quota/rate limit on ${model} — trying next model…`);
+                }
+                continue;
             }
 
+            sawNonQuotaFailure = true;
             const isLast = mi === modelsToTry.length - 1;
             const retryable = status === 404 || status === 500 || status === 503;
             if (!isLast && retryable) {
@@ -165,8 +176,8 @@ async function askGeminiWithKey(key, keyIndex, modelsToTry, body) {
         }
     }
 
-    if (quotaExhausted) return { quotaExhausted: true };
     if (keyInvalid) return { keyInvalid: true };
+    if (sawQuota && !sawNonQuotaFailure) return { quotaExhausted: true };
     return null;
 }
 
@@ -179,13 +190,11 @@ async function askGemini(systemPrompt, userPrompt, history) {
 
     const preferredModel = getModel();
     const fallbackModels = [
-        'gemini-2.0-flash',
+        'gemini-2.5-flash-lite',
         'gemini-2.5-flash',
         'gemini-flash-latest',
-        'gemini-2.5-flash-lite',
         'gemini-2.0-flash-lite',
-        'gemini-1.5-flash',
-        'gemini-1.5-flash-latest'
+        'gemini-2.0-flash'
     ];
     const modelsToTry = [preferredModel, ...fallbackModels.filter((m) => m !== preferredModel)].slice(
         0,

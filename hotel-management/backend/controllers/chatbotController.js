@@ -81,10 +81,21 @@ function rowToHotel(row) {
     };
 }
 
+const NON_CITY_IN_PHRASES =
+    /^(one|two|the|a|an|general|mind|fact|short|brief|simple|this|that|case|order|particular|advance|summary|detail|total)\b/i;
+
 function extractCity(message, fallback) {
     const m = String(message).match(/\bin\s+([a-zA-Z][a-zA-Z\s.'-]{1,48})/i);
-    if (m) return m[1].trim();
-    return fallback || null;
+    if (!m) return fallback || null;
+    let city = m[1].trim();
+    // "in one sentence", "in mind" — not cities.
+    if (NON_CITY_IN_PHRASES.test(city) || /^(one|two|three)\s+(sentence|word|line|minute|day)/i.test(city)) {
+        return fallback || null;
+    }
+    // Keep city names short (e.g. "Kathmandu", "Pokhara", "Bhaktapur").
+    const words = city.split(/\s+/).filter(Boolean);
+    if (words.length > 3) city = words.slice(0, 3).join(' ');
+    return city;
 }
 
 async function fetchHotels(cityLike, orderBy, limit = 8) {
@@ -114,6 +125,119 @@ async function fetchDistinctCities() {
     return rows.map((r) => r.city).filter(Boolean);
 }
 
+/** Search verified hotels by name (partial match). */
+async function findHotelsByName(nameHint, limit = 5) {
+    const hint = String(nameHint || '').trim();
+    if (hint.length < 2) return [];
+    const [rows] = await db.query(
+        `${HOTEL_SELECT} AND h.name LIKE ? ORDER BY h.rating DESC, h.name ASC LIMIT ?`,
+        [`%${hint}%`, Math.min(Math.max(limit, 1), 10)]
+    );
+    return rows;
+}
+
+function pickBestNameMatch(rows, hint) {
+    if (!rows || !rows.length) return null;
+    const needle = hint.toLowerCase().replace(/\s+/g, ' ');
+    const exact = rows.find((r) => String(r.name).toLowerCase() === needle);
+    if (exact) return exact;
+    const contains = rows.filter((r) => String(r.name).toLowerCase().includes(needle));
+    if (contains.length === 1) return contains[0];
+    if (contains.length > 1) {
+        contains.sort((a, b) => String(a.name).length - String(b.name).length);
+        return contains[0];
+    }
+    return rows[0];
+}
+
+/** "location for Majestic Lake", "where is Tribeni guest house", etc. */
+function extractHotelNameHint(message) {
+    const text = String(message || '').trim();
+    const patterns = [
+        /(?:location|address|directions?|map|contact|phone|email|coordinates)\s+(?:for|of|to|at)\s+(.+)/i,
+        /(?:where\s+is|where's|find)\s+(.+)/i,
+        /^(.+?)\s+(?:location|address|phone|contact|map)\s*$/i
+    ];
+    for (const pattern of patterns) {
+        const m = text.match(pattern);
+        if (!m || !m[1]) continue;
+        let name = m[1].trim().replace(/[?.!]+$/, '').trim();
+        if (name.length >= 3) return name;
+    }
+    return null;
+}
+
+function hasValidCoords(h) {
+    const lat = Number(h?.latitude);
+    const lng = Number(h?.longitude);
+    return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+}
+
+/** Map button only for a specific hotel location reply, not city-wide hotel lists. */
+function shouldShowMapForRules(rules) {
+    return Boolean(rules && rules.kind === 'location' && hasValidCoords(rules.data));
+}
+
+function formatLocationReply(h) {
+    const lines = [`**${h.name}**`];
+    if (h.address) lines.push(`Address: ${h.address}`);
+    if (h.city) lines.push(`City / area: ${h.city}`);
+    if (hasValidCoords(h)) {
+        lines.push(`Coordinates: ${Number(h.latitude).toFixed(6)}, ${Number(h.longitude).toFixed(6)}`);
+        lines.push('Tap **View on Full Map** below for directions.');
+    } else if (!h.address && !h.city) {
+        lines.push('This property has not pinned a map location yet. Open their listing on the site for updates.');
+    }
+    return lines.join('\n');
+}
+
+async function resolveHotelForQuery(message, lastHotel) {
+    const hint = extractHotelNameHint(message);
+    if (hint) {
+        const rows = await findHotelsByName(hint, 5);
+        const best = pickBestNameMatch(rows, hint);
+        if (best) return rowToHotel(best);
+        return null;
+    }
+    if (lastHotel && lastHotel.name) {
+        return rowToHotel(lastHotel) || lastHotel;
+    }
+    return null;
+}
+
+/** Hotel listing / lookup questions — handled by rules, not Gemini. */
+function isRuleIntent(message) {
+    const lower = String(message || '').toLowerCase().trim();
+    if (/^help\b|^what can you/i.test(lower)) return true;
+    if (/(list cities|which cities|what cities|cities do you|show hotels)/i.test(lower)) return true;
+    if (/(cheapest|cheap|lowest price|budget)/i.test(lower)) return true;
+    if (/(best rated|top rated|highest rating|best hotels)/i.test(lower)) return true;
+    if (/\b(hotels?|stays?|places?|accommodation|lodging)\s+in\s+/i.test(lower)) return true;
+    if (/(contact|phone|email|call|reach)/i.test(lower)) return true;
+    if (/(location|address|directions?|map|coordinates|where\s+is|where's|located|nearby|how to get)/i.test(lower)) {
+        return true;
+    }
+    if (extractHotelNameHint(message)) return true;
+    return false;
+}
+
+function buildRulesFallbackReply(rows) {
+    if (rows.length) {
+        const lines = rows.map((r, i) => formatHotelLine(r, i));
+        return {
+            reply: `I could not match that exactly. Here are verified hotels you can browse:\n\n${lines.join('\n')}${followUpLine('nepalwide', null)}`,
+            data: rowToHotel(rows[0]),
+            replyMode: 'rules'
+        };
+    }
+    return {
+        reply:
+            'I could not find an answer in our hotel database. Try “hotels in Kathmandu”, “location for [hotel name]”, or “list cities”.',
+        data: null,
+        replyMode: 'rules'
+    };
+}
+
 function formatHotelLine(h, i) {
     const price =
         h.starting_price != null && !Number.isNaN(Number(h.starting_price))
@@ -129,10 +253,31 @@ async function tryRulesReply(message, lastHotel, lastCity) {
     if (/^help\b|^what can you/i.test(lower)) {
         return {
             reply:
-                'Try: “hotels in Kathmandu”, “cheapest in Pokhara”, “best rated in Lalitpur”, “list cities”, or “contact” after I name a hotel.',
+                'Try: “hotels in Kathmandu”, “cheapest in Pokhara”, “location for [hotel name]”, “contact for [hotel name]”, or “list cities”.',
             data: null,
             replyMode: 'rules',
             kind: null,
+            city: null
+        };
+    }
+
+    if (/^show hotels\b/i.test(lower)) {
+        const rows = await fetchHotels(null, 'rating', 8);
+        if (!rows.length) {
+            return {
+                reply: 'No verified hotels are in the database yet. Check back soon.',
+                data: null,
+                replyMode: 'rules',
+                kind: 'recommend',
+                city: null
+            };
+        }
+        const lines = rows.map((r, i) => formatHotelLine(r, i));
+        return {
+            reply: `Verified hotels on Nepal Stays:\n\n${lines.join('\n')}${followUpLine('nepalwide', null)}`,
+            data: rowToHotel(rows[0]),
+            replyMode: 'rules',
+            kind: 'recommend',
             city: null
         };
     }
@@ -162,19 +307,61 @@ async function tryRulesReply(message, lastHotel, lastCity) {
         extractCity(message, lastCity) ||
         (lastHotel && lastHotel.city ? String(lastHotel.city) : null);
 
-    if (/(contact|phone|email|call|reach)/i.test(lower) && lastHotel) {
-        const h = lastHotel;
-        const bits = [h.phone && `Phone: ${h.phone}`, h.email && `Email: ${h.email}`].filter(Boolean);
-        return {
-            reply:
-                bits.length > 0
-                    ? `**${h.name}** — ${bits.join(' · ')}.${followUpLine('contact', h.city)}`
-                    : `I don't have contact details stored for **${h.name}**. Try their listing on the site.`,
-            data: rowToHotel(h),
-            replyMode: 'rules',
-            kind: 'contact',
-            city: h.city
-        };
+    const isCityHotelSearch = /\b(hotels?|stays?|places?|accommodation|lodging)\s+in\s+/i.test(lower);
+    const wantsLocation =
+        /(location|address|directions?|map|coordinates|where\s+is|where's|located|nearby|how to get)/i.test(
+            lower
+        );
+    const wantsContact = /(contact|phone|email|call|reach)/i.test(lower);
+
+    if (wantsLocation && !wantsContact && !isCityHotelSearch) {
+        const h = await resolveHotelForQuery(message, lastHotel);
+        if (h) {
+            return {
+                reply: `${formatLocationReply(h)}${followUpLine('location', h.city)}`,
+                data: h,
+                replyMode: 'rules',
+                kind: 'location',
+                city: h.city
+            };
+        }
+        const hint = extractHotelNameHint(message);
+        if (hint) {
+            return {
+                reply: `I could not find a verified hotel matching "**${hint}**". Try "list cities" or "hotels in Kathmandu".`,
+                data: null,
+                replyMode: 'rules',
+                kind: 'location',
+                city: null
+            };
+        }
+    }
+
+    if (wantsContact) {
+        const h = await resolveHotelForQuery(message, lastHotel);
+        if (h) {
+            const bits = [h.phone && `Phone: ${h.phone}`, h.email && `Email: ${h.email}`].filter(Boolean);
+            return {
+                reply:
+                    bits.length > 0
+                        ? `**${h.name}** — ${bits.join(' · ')}.${followUpLine('contact', h.city)}`
+                        : `I don't have contact details stored for **${h.name}**. Try their listing on the site.`,
+                data: h,
+                replyMode: 'rules',
+                kind: 'contact',
+                city: h.city
+            };
+        }
+        const hint = extractHotelNameHint(message);
+        if (hint) {
+            return {
+                reply: `I could not find a verified hotel matching "**${hint}**". Try "list cities" or ask after I name a hotel.`,
+                data: null,
+                replyMode: 'rules',
+                kind: 'contact',
+                city: null
+            };
+        }
     }
 
     if (/(cheapest|cheap|lowest price|budget)/i.test(lower)) {
@@ -224,7 +411,8 @@ async function tryRulesReply(message, lastHotel, lastCity) {
         };
     }
 
-    if (/\b(hotels?|stays?|places?)\s+in\s+/i.test(lower) || /\bin\s+[a-z]/i.test(message)) {
+    // Only explicit "hotels in …" queries — broad "in …" matching blocked Gemini.
+    if (/\b(hotels?|stays?|places?|accommodation|lodging)\s+in\s+/i.test(lower)) {
         const c = extractCity(message, null);
         if (c) {
             const rows = await fetchHotels(c, 'rating', 8);
@@ -309,8 +497,16 @@ async function queryChatbot(req, res) {
                 success: true,
                 reply: rules.reply,
                 data: rules.data,
-                replyMode: rules.replyMode
+                replyMode: 'rules',
+                showMap: shouldShowMapForRules(rules)
             });
+        }
+
+        // Rule-style hotel questions must not call Gemini (database answers only).
+        if (isRuleIntent(trimmed)) {
+            const rows = await fetchHotels(null, 'rating', 5);
+            const fallback = buildRulesFallbackReply(rows);
+            return res.json({ success: true, ...fallback });
         }
 
         if (getKey()) {
@@ -323,26 +519,14 @@ async function queryChatbot(req, res) {
                     replyMode: 'gemini'
                 });
             }
+            console.warn('Chatbot: Gemini returned no text (quota, model, or API error). Using fallback reply.');
+        } else {
+            console.warn('Chatbot: GEMINI_API_KEY not set — rules/fallback only.');
         }
 
         const rows = await fetchHotels(null, 'rating', 5);
-        if (rows.length) {
-            const lines = rows.map((r, i) => formatHotelLine(r, i));
-            return res.json({
-                success: true,
-                reply: `I'm not sure how to answer that yet. Here are some verified hotels you can browse:\n\n${lines.join('\n')}${followUpLine('nepalwide', null)}`,
-                data: rowToHotel(rows[0]),
-                replyMode: 'rules'
-            });
-        }
-
-        return res.json({
-            success: true,
-            reply:
-                'I could not reach the AI assistant and there are no hotels in the database yet. Add GEMINI_API_KEY to backend/.env or ask “list cities” once data exists.',
-            data: null,
-            replyMode: 'rules'
-        });
+        const fallback = buildRulesFallbackReply(rows);
+        return res.json({ success: true, ...fallback });
     } catch (err) {
         console.error('queryChatbot:', err);
         return res.status(500).json({

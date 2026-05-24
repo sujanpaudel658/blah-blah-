@@ -48,6 +48,22 @@ const RoutingEngine = ({ from, to }) => {
     return null;
 };
 
+const isGeminiReply = (msg) => msg.isBot && msg.replyMode === 'gemini';
+
+const botBubbleClass = (msg) => {
+    if (!msg.isBot) return 'bg-[#B88E2F] text-white rounded-tr-none';
+    if (isGeminiReply(msg)) {
+        return 'bg-blue-600 text-white border border-blue-700 rounded-tl-none';
+    }
+    return 'bg-white border border-gray-200 text-[#2D3748] rounded-tl-none';
+};
+
+const hasMapCoords = (data) => {
+    const lat = Number(data?.latitude);
+    const lng = Number(data?.longitude);
+    return Number.isFinite(lat) && Number.isFinite(lng);
+};
+
 const ChatBot = () => {
     const location = useLocation();
     const path = location.pathname;
@@ -100,11 +116,6 @@ const ChatBot = () => {
         if (!inputValue.trim()) return;
 
         const userMessage = inputValue.trim();
-        // map CTA only when message looks location-related (avoid nagging every reply)
-        const lowerMessage = userMessage.toLowerCase();
-        const userWantsLocation =
-            /(map|location|directions|route|coordinates|nearby|where|located|address|city|place|find it)/i.test(lowerMessage) ||
-            /\bin\s+[a-zA-Z]/.test(lowerMessage);
 
         const historyPayload = messages.slice(-8).map((m) => ({
             role: m.isBot ? 'assistant' : 'user',
@@ -129,12 +140,14 @@ const ChatBot = () => {
                 }
             );
             if (response.data.success) {
+                const replyMode = response.data.replyMode === 'gemini' ? 'gemini' : 'rules';
+                const hotelData = response.data.data;
                 setMessages(prev => [...prev, {
                     text: response.data.reply,
                     isBot: true,
-                    data: response.data.data,
-                    showLocationActions: userWantsLocation,
-                    replyMode: response.data.replyMode === 'gemini' ? 'gemini' : 'rules'
+                    data: hotelData,
+                    showLocationActions: Boolean(response.data.showMap) && hasMapCoords(hotelData),
+                    replyMode
                 }]);
                 if (response.data.data) {
                     setLastHotel(response.data.data);
@@ -162,7 +175,7 @@ const ChatBot = () => {
             } else {
                 replyText = "Something went wrong. Please try again.";
             }
-            setMessages(prev => [...prev, { text: replyText, isBot: true }]);
+            setMessages(prev => [...prev, { text: replyText, isBot: true, replyMode: 'rules' }]);
         } finally {
             setIsLoading(false);
         }
@@ -213,19 +226,22 @@ const ChatBot = () => {
                     {/* min-h-0: scroll inside flex column */}
                     <div className="flex-1 min-h-0 p-4 overflow-y-auto overflow-x-hidden bg-gray-50 flex flex-col gap-3 custom-scrollbar [scrollbar-gutter:stable]">
                         {messages.map((msg, index) => (
-                            <div key={index} className={`flex ${msg.isBot ? 'justify-start' : 'justify-end'}`}>
+                            <div key={index} className={`flex flex-col ${msg.isBot ? 'items-start' : 'items-end'}`}>
+                                {msg.isBot && (
+                                    <span
+                                        className={`text-[9px] font-bold uppercase tracking-wider mb-1 px-1 ${
+                                            isGeminiReply(msg) ? 'text-blue-600' : 'text-gray-400'
+                                        }`}
+                                    >
+                                        {isGeminiReply(msg) ? 'AI answer' : 'System'}
+                                    </span>
+                                )}
                                 <div
-                                    className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${
-                                        msg.isBot
-                                            ? (msg.replyMode === 'gemini'
-                                                  ? 'bg-blue-600 text-white border border-blue-700 rounded-tl-none'
-                                                  : 'bg-white border border-gray-200 text-[#2D3748] rounded-tl-none')
-                                            : 'bg-[#B88E2F] text-white rounded-tr-none'
-                                    }`}
+                                    className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${botBubbleClass(msg)}`}
                                 >
                                     <div className={msg.isBot ? 'whitespace-pre-wrap' : ''}>{msg.text}</div>
 
-                                    {msg.isBot && msg.data?.latitude && msg.showLocationActions && (
+                                    {msg.isBot && hasMapCoords(msg.data) && msg.showLocationActions && (
                                         <button
                                             onClick={() => {
                                                 setMapTarget(msg.data);
@@ -271,7 +287,7 @@ const ChatBot = () => {
                     </form>
 
                     <div className="shrink-0 px-4 pb-4 flex gap-2 overflow-x-auto custom-scrollbar no-scrollbar text-center">
-                        {["Show hotels", "Contact info"].map((suggest, i) => (
+                        {["Show hotels", "hotels in Kathmandu", "list cities"].map((suggest, i) => (
                             <button
                                 key={i}
                                 onClick={() => setInputValue(suggest)}
